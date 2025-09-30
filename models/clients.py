@@ -19,6 +19,7 @@ class Client(SQLModel, table=True):
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     deleted_at: Optional[datetime] = Field(default=None)
+    deleted: bool = Field(default=False)
 
     # Relaciones
     type_identification: "TypeIdentification" = Relationship(back_populates="clients")

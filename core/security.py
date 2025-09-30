@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 from sqlmodel import select
 from core.database import SessionDep
-from models.user import User
+from models.users import User
 from typing import Annotated
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.exceptions import HTTPException
-from models.token import Token as DBToken
+from models.tokens import Token as DBToken
 
 from jose import JWTError, jwt
 import bcrypt
