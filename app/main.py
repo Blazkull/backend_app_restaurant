@@ -42,7 +42,7 @@ origins = [
     "http://localhost",
     "http://127.0.0.1:5500",
     "http://localhost:8080",
-    "*",  # Advertencia: Usar "*" solo en desarrollo.
+    "*", # Permitir todas las fuentes (útil para desarrollo, restringir en producción)  
 ]
 
 app.add_middleware(
@@ -53,8 +53,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Inclusión de Routers (Rutas de la API) ---
-app.include_router(users.router, prefix="/api/users", tags=["Usuarios"])
+# ------------------------------------------------------------------------
+
+app.include_router(
+    users.router, 
+    prefix="/api",
+    tags=["Usuarios"]
+)
+# ------------------------------------------------------------------------
 
 
 # --- Ruta Raíz de Bienvenida ---
