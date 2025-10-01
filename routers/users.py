@@ -12,18 +12,13 @@ from core.security import decode_token, hash_password, verify_password
 # Importaciones de Modelos y Schemas
 from models.users import User
 from models.status import Status
-from schemas.users_schema import UserRead, UserCreate, UserUpdate, PasswordUpdate
 from models.roles import Role 
+from schemas.users_schema import UserRead, UserCreate, UserUpdate, PasswordUpdate
 
 router = APIRouter(prefix="/users", tags=["Usuarios"])
 
-# --- CONSTANTE DE ESTADO CRÍTICA ---
-# !!! REEMPLAZA ESTE VALOR CON EL ID REAL DEL ESTADO 'ELIMINADO' EN TU TABLA STATUS !!!
-ID_STATUS_ELIMINADO = 3  
-# -----------------------------------
-
 # ======================================================================
-# ENDPOINT 1: LISTAR Y FILTRAR USUARIOS (GET /users/)
+# ENDPOINT 1: LISTAR Y FILTRAR USUARIOS (GET /users/) -> SOLO ACTIVOS
 # ======================================================================
 
 @router.get(
@@ -38,8 +33,8 @@ def read_users(
     offset: int = Query(default=0, ge=0, description="Número de registros a omitir (offset)."),
     limit: int = Query(default=10, le=100, description="Máxima cantidad de usuarios a retornar (limit)."),
     
-    # Filtrado por Estado
-    status_id: Optional[int] = Query(default=None, description="Filtrar por ID de estado. Omite este campo para ver solo Activos."),
+    # Filtrado por Estado (Mantienes Status ID para otros estados: Inactivo, Suspendido, etc.)
+    status_id: Optional[int] = Query(default=None, description="Filtrar por ID de estado."),
     status_name: Optional[str] = Query(default=None, description="Filtrar por nombre del estado."),
     
     # Filtrado por Rol
@@ -51,30 +46,32 @@ def read_users(
 
 ) -> List[UserRead]:
     """
-    Lista usuarios permitiendo filtros y paginación, **excluyendo a los usuarios eliminados por defecto**.
+    Lista usuarios permitiendo filtros y paginación, **excluyendo a los usuarios con deleted=True por defecto**.
     """
     
     query = select(User)
     
-    # --- EXCLUSIÓN CLAVE: Excluir usuarios eliminados por defecto ---
-    query = query.where(User.id_status != ID_STATUS_ELIMINADO)
-    # ---------------------------------------------------------------
+    # --- EXCLUSIÓN CLAVE: Excluir usuarios eliminados (deleted=False) ---
+    query = query.where(User.deleted == False)
+    # -------------------------------------------------------------------
     
-    # Filtrar por ID de estado (solo si el usuario lo especifica)
+    # Filtrar por ID de estado (otros estados)
     if status_id is not None:
         query = query.where(User.id_status == status_id)
         
     #Filtrar por Nombre del estado
     if status_name:
-        query = query.join(Status, User.id_status == Status.id).where(Status.name == status_name)
+        # Usa .join() para relacionar User y Status
+        query = query.join(Status, User.id_status == Status.id).where(Status.name.ilike(f"%{status_name}%"))
     
     # Filtrar por ID de Rol
     if role_id is not None:
         query = query.where(User.id_role == role_id)
     
-    #Filtrar por rol Nombre
+    #Filtrar por rol Nombre (Usa ilike para búsqueda flexible)
     if role_name:
-        query = query.join(Role, User.id_role == Role.id).where(Role.name == role_name)
+        # Usa .join() para relacionar User y Role
+        query = query.join(Role, User.id_role == Role.id).where(Role.name.ilike(f"%{role_name}%"))
         
     # Filtrar por nombre de usuario
     if username_search:
@@ -94,7 +91,36 @@ def read_users(
     return users
 
 # ======================================================================
-# ENDPOINT 2: OBTENER USUARIO POR ID (GET /users/{user_id})
+# ENDPOINT 2: LISTAR USUARIOS ELIMINADOS (GET /users/deleted) -> NUEVO
+# ======================================================================
+
+@router.get(
+    "/deleted", 
+    response_model=List[UserRead], 
+    summary="Listar usuarios marcados como eliminados (deleted=True)"
+)
+def read_deleted_users(
+    session: SessionDep,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, le=100)
+) -> List[UserRead]:
+    """
+    Lista solo los usuarios cuyo campo 'deleted' es True.
+    """
+    query = select(User).where(User.deleted == True).offset(offset).limit(limit)
+    users = session.exec(query).all()
+    
+    if not users and offset > 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontraron usuarios eliminados en el rango de paginación."
+        )
+    
+    return users
+
+
+# ======================================================================
+# ENDPOINT 3: OBTENER USUARIO POR ID (GET /users/{user_id}) -> SOLO ACTIVOS
 # ======================================================================
 
 @router.get("/{user_id}", response_model=UserRead, summary="Obtener un usuario por ID (excluye eliminados)", dependencies=[Depends(decode_token)])
@@ -103,16 +129,16 @@ def read_user(user_id: int, session: SessionDep):
     Busca un usuario por su ID. Retorna 404 si no existe O si está marcado como eliminado.
     """
     try:
-        # Usar select().where() para aplicar el filtro de eliminación suave
+        # Filtrar por ID y por la bandera 'deleted'
         query = select(User).where(
             User.id == user_id, 
-            User.id_status != ID_STATUS_ELIMINADO 
+            User.deleted == False 
         )
         user_db = session.exec(query).first()
         
         if not user_db:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User doesn't exist or is currently inactive/deleted."
+                status_code=status.HTTP_404_NOT_FOUND, detail="User doesn't exist or is deleted."
             )
             
         return user_db 
@@ -126,7 +152,7 @@ def read_user(user_id: int, session: SessionDep):
         )
 
 # ======================================================================
-# ENDPOINT 3: CREAR USUARIO (POST /users/)
+# ENDPOINT 4: CREAR USUARIO (POST /users/)
 # ======================================================================
 
 @router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED, summary="Crear un nuevo usuario", dependencies=[Depends(decode_token)])
@@ -147,7 +173,7 @@ def create_user(user_data: UserCreate, session: SessionDep):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered") 
         
         # 3. Hashear contraseña y crear objeto User
-        user_data_dict = user_data.model_dump()
+        user_data_dict = user_data.model_dump(exclude_none=True)
         user_data_dict["password"] = hash_password(user_data.password)
         
         user = User.model_validate(user_data_dict) 
@@ -171,7 +197,7 @@ def create_user(user_data: UserCreate, session: SessionDep):
         )
 
 # ======================================================================
-# ENDPOINT 4: ACTUALIZAR USUARIO (PATCH /users/{user_id})
+# ENDPOINT 5: ACTUALIZAR USUARIO (PATCH /users/{user_id})
 # ======================================================================
 
 @router.patch("/{user_id}", response_model=UserRead, status_code=status.HTTP_200_OK, summary="Actualizar datos de usuario (sin contraseña)", dependencies=[Depends(decode_token)])
@@ -197,8 +223,12 @@ def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
         # 3. Prevenir actualización de contraseña en este endpoint
         if "password" in user_data_dict:
             del user_data_dict["password"] 
+            
+        # 4. Manejar "undelete"
+        if "deleted" in user_data_dict and user_data_dict["deleted"] == False and user_db.deleted == True:
+            user_db.deleted_at = None # Quitar la fecha de eliminación si se está reactivando
 
-        # 4. Actualizar
+        # 5. Actualizar
         user_db.sqlmodel_update(user_data_dict)
         user_db.updated_at = datetime.utcnow()
         session.add(user_db)
@@ -215,7 +245,7 @@ def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
         )
 
 # ======================================================================
-# ENDPOINT 5: ACTUALIZAR CONTRASEÑA (PATCH /users/{user_id}/password)
+# ENDPOINT 6: ACTUALIZAR CONTRASEÑA (PATCH /users/{user_id}/password)
 # ======================================================================
 
 @router.patch("/{user_id}/password", response_model=dict, status_code=status.HTTP_200_OK, summary="Actualizar solo la contraseña del usuario", dependencies=[Depends(decode_token)])
@@ -255,7 +285,7 @@ def update_user_password(user_id: int, password_update: PasswordUpdate, session:
         )
 
 # ======================================================================
-# ENDPOINT 6: ELIMINAR USUARIO (DELETE /users/{user_id}) - SOFT DELETE
+# ENDPOINT 7: ELIMINAR USUARIO (DELETE /users/{user_id}) - SOFT DELETE
 # ======================================================================
 
 @router.delete(
@@ -266,8 +296,8 @@ def update_user_password(user_id: int, password_update: PasswordUpdate, session:
 )
 def delete_user(user_id: int, session: SessionDep):
     """
-    Realiza una eliminación suave (Soft Delete) del usuario,
-    actualizando su estado a 'Eliminado' y registrando la fecha de eliminación.
+    Realiza una eliminación suave (Soft Delete) del usuario, 
+    marcando 'deleted = True' y registrando la fecha de eliminación.
     """
     try:
         user_db = session.get(User, user_id)
@@ -276,11 +306,11 @@ def delete_user(user_id: int, session: SessionDep):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
         # 1. Verificar si el usuario ya está marcado como eliminado
-        if user_db.id_status == ID_STATUS_ELIMINADO:
+        if user_db.deleted == True:
             return Response(status_code=status.HTTP_204_NO_CONTENT)
 
         # 2. Implementar Soft Delete
-        user_db.id_status = ID_STATUS_ELIMINADO
+        user_db.deleted = True # <-- Marcar como eliminado
         user_db.deleted_at = datetime.utcnow()
         
         session.add(user_db)
