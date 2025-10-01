@@ -17,9 +17,9 @@ from schemas.users_schema import UserRead, UserCreate, UserUpdate, PasswordUpdat
 
 router = APIRouter(prefix="/users", tags=["Usuarios"])
 
-# ======================================================================
+# ----------------------------------------------------------------------
 # ENDPOINT 1: LISTAR Y FILTRAR USUARIOS (GET /users/) -> SOLO ACTIVOS
-# ======================================================================
+# ----------------------------------------------------------------------
 
 @router.get(
     "/", 
@@ -90,9 +90,9 @@ def read_users(
 
     return users
 
-# ======================================================================
+# ----------------------------------------------------------------------
 # ENDPOINT 2: LISTAR USUARIOS ELIMINADOS (GET /users/deleted) -> NUEVO
-# ======================================================================
+# ----------------------------------------------------------------------
 
 @router.get(
     "/deleted", 
@@ -119,9 +119,9 @@ def read_deleted_users(
     return users
 
 
-# ======================================================================
+# ----------------------------------------------------------------------
 # ENDPOINT 3: OBTENER USUARIO POR ID (GET /users/{user_id}) -> SOLO ACTIVOS
-# ======================================================================
+# ----------------------------------------------------------------------
 
 @router.get("/{user_id}", response_model=UserRead, summary="Obtener un usuario por ID (excluye eliminados)", dependencies=[Depends(decode_token)])
 def read_user(user_id: int, session: SessionDep):
@@ -151,9 +151,9 @@ def read_user(user_id: int, session: SessionDep):
             detail=f"Error retrieving user: {str(e)}",
         )
 
-# ======================================================================
+# ----------------------------------------------------------------------
 # ENDPOINT 4: CREAR USUARIO (POST /users/)
-# ======================================================================
+# ----------------------------------------------------------------------
 
 @router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED, summary="Crear un nuevo usuario", dependencies=[Depends(decode_token)])
 def create_user(user_data: UserCreate, session: SessionDep):
@@ -196,9 +196,9 @@ def create_user(user_data: UserCreate, session: SessionDep):
             detail=f"An error occurred while creating user: {str(e)}",
         )
 
-# ======================================================================
+# ----------------------------------------------------------------------
 # ENDPOINT 5: ACTUALIZAR USUARIO (PATCH /users/{user_id})
-# ======================================================================
+# ----------------------------------------------------------------------
 
 @router.patch("/{user_id}", response_model=UserRead, status_code=status.HTTP_200_OK, summary="Actualizar datos de usuario (sin contraseña)", dependencies=[Depends(decode_token)])
 def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
@@ -244,9 +244,9 @@ def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
             detail=f"An error occurred while updating user: {str(e)}",
         )
 
-# ======================================================================
+# ----------------------------------------------------------------------
 # ENDPOINT 6: ACTUALIZAR CONTRASEÑA (PATCH /users/{user_id}/password)
-# ======================================================================
+# ----------------------------------------------------------------------
 
 @router.patch("/{user_id}/password", response_model=dict, status_code=status.HTTP_200_OK, summary="Actualizar solo la contraseña del usuario", dependencies=[Depends(decode_token)])
 def update_user_password(user_id: int, password_update: PasswordUpdate, session: SessionDep):
@@ -284,9 +284,9 @@ def update_user_password(user_id: int, password_update: PasswordUpdate, session:
             detail=f"An error occurred while updating password: {str(e)}",
         )
 
-# ======================================================================
+# ----------------------------------------------------------------------
 # ENDPOINT 7: ELIMINAR USUARIO (DELETE /users/{user_id}) - SOFT DELETE
-# ======================================================================
+# ----------------------------------------------------------------------
 
 @router.delete(
     "/{user_id}", 
