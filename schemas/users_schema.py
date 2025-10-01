@@ -24,12 +24,15 @@ class UserUpdate(SQLModel):
     email: Optional[EmailStr] = None
     id_role: Optional[int] = None
     id_status: Optional[int] = None
-    additional_role_ids: Optional[List[int]] = None 
-
+    additional_role_ids: Optional[List[int]] = None
+    deleted: Optional[bool] = None 
+    
 class UserRead(UserBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    deleted_at: Optional[datetime] 
+    deleted: bool = False         
     
 class PasswordUpdate(SQLModel):
     password: str = Field(min_length=6, max_length=100)
