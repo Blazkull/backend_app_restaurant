@@ -10,12 +10,13 @@ from core.database import SessionDep
 from core.security import decode_token, hash_password, verify_password
 
 # Importaciones de Modelos y Schemas
-from models.users import User
+from models.users import User # Asume que ahora tiene 'deleted' y 'deleted_on'
 from models.status import Status
 from models.roles import Role 
 from schemas.users_schema import UserRead, UserCreate, UserUpdate, PasswordUpdate
 
-router = APIRouter(prefix="/users", tags=["Usuarios"])
+router = APIRouter(prefix="/api/users", tags=["Usuarios"], dependencies=[Depends(decode_token)]) 
+
 
 # ----------------------------------------------------------------------
 # ENDPOINT 1: LISTAR Y FILTRAR USUARIOS (GET /users/) -> SOLO ACTIVOS
@@ -33,7 +34,7 @@ def read_users(
     offset: int = Query(default=0, ge=0, description="Número de registros a omitir (offset)."),
     limit: int = Query(default=10, le=100, description="Máxima cantidad de usuarios a retornar (limit)."),
     
-    # Filtrado por Estado (Mantienes Status ID para otros estados: Inactivo, Suspendido, etc.)
+    # Filtrado por Estado
     status_id: Optional[int] = Query(default=None, description="Filtrar por ID de estado."),
     status_name: Optional[str] = Query(default=None, description="Filtrar por nombre del estado."),
     
@@ -91,7 +92,7 @@ def read_users(
     return users
 
 # ----------------------------------------------------------------------
-# ENDPOINT 2: LISTAR USUARIOS ELIMINADOS (GET /users/deleted) -> NUEVO
+# ENDPOINT 2: LISTAR USUARIOS ELIMINADOS (GET /users/deleted)
 # ----------------------------------------------------------------------
 
 @router.get(
@@ -123,7 +124,7 @@ def read_deleted_users(
 # ENDPOINT 3: OBTENER USUARIO POR ID (GET /users/{user_id}) -> SOLO ACTIVOS
 # ----------------------------------------------------------------------
 
-@router.get("/{user_id}", response_model=UserRead, summary="Obtener un usuario por ID (excluye eliminados)", dependencies=[Depends(decode_token)])
+@router.get("/{user_id}", response_model=UserRead, summary="Obtener un usuario por ID (excluye eliminados)")
 def read_user(user_id: int, session: SessionDep):
     """
     Busca un usuario por su ID. Retorna 404 si no existe O si está marcado como eliminado.
@@ -155,7 +156,7 @@ def read_user(user_id: int, session: SessionDep):
 # ENDPOINT 4: CREAR USUARIO (POST /users/)
 # ----------------------------------------------------------------------
 
-@router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED, summary="Crear un nuevo usuario", dependencies=[Depends(decode_token)])
+@router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED, summary="Crear un nuevo usuario")
 def create_user(user_data: UserCreate, session: SessionDep):
 
     try:
@@ -165,7 +166,9 @@ def create_user(user_data: UserCreate, session: SessionDep):
                 status_code=status.HTTP_400_BAD_REQUEST, detail="The password must be at least 6 characters."
             )
         
-        # 2. Validar existencia de username y email
+        # 2. Validar unicidad de username y email (solo entre usuarios NO eliminados)
+        # Se requiere unicidad estricta para username y email en la tabla (incluyendo eliminados)
+        # La convención general es: si un usuario eliminado tiene un username/email, no se puede reutilizar.
         if session.exec(select(User).where(User.username == user_data.username)).first():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered") 
         
@@ -200,11 +203,12 @@ def create_user(user_data: UserCreate, session: SessionDep):
 # ENDPOINT 5: ACTUALIZAR USUARIO (PATCH /users/{user_id})
 # ----------------------------------------------------------------------
 
-@router.patch("/{user_id}", response_model=UserRead, status_code=status.HTTP_200_OK, summary="Actualizar datos de usuario (sin contraseña)", dependencies=[Depends(decode_token)])
+@router.patch("/{user_id}", response_model=UserRead, status_code=status.HTTP_200_OK, summary="Actualizar datos de usuario (sin contraseña)")
 def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
 
     try:
         user_db = session.get(User, user_id)
+        # No se valida 'user_db.deleted is True' aquí, pues se permite actualizar un usuario eliminado (ej. para cambiarle el status)
         if not user_db:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User doesn't exist")
         
@@ -224,9 +228,25 @@ def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
         if "password" in user_data_dict:
             del user_data_dict["password"] 
             
-        # 4. Manejar "undelete"
-        if "deleted" in user_data_dict and user_data_dict["deleted"] == False and user_db.deleted == True:
-            user_db.deleted_at = None # Quitar la fecha de eliminación si se está reactivando
+        # 4. Manejar "undelete" (desactivación del soft delete)
+        # Si se envía 'deleted: False' y el usuario estaba eliminado:
+        # Este proceso se ha migrado al endpoint exclusivo de /restore para mayor claridad y seguridad.
+        # Si 'deleted' se actualiza a False, debe hacerse via /restore
+        if "deleted" in user_data_dict:
+             if user_data_dict["deleted"] == False and user_db.deleted == True:
+                 raise HTTPException(
+                     status_code=status.HTTP_400_BAD_REQUEST, 
+                     detail="Restoration must be done using the /restore endpoint."
+                 )
+             # Si se intenta eliminar (deleted: True) via PATCH, se redirige a DELETE
+             if user_data_dict["deleted"] == True and user_db.deleted == False:
+                 raise HTTPException(
+                     status_code=status.HTTP_400_BAD_REQUEST, 
+                     detail="Soft deletion must be done using the DELETE /{user_id} endpoint."
+                 )
+             # Eliminar 'deleted' del diccionario de actualización para evitar cambios no intencionales.
+             del user_data_dict["deleted"] 
+
 
         # 5. Actualizar
         user_db.sqlmodel_update(user_data_dict)
@@ -248,12 +268,16 @@ def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
 # ENDPOINT 6: ACTUALIZAR CONTRASEÑA (PATCH /users/{user_id}/password)
 # ----------------------------------------------------------------------
 
-@router.patch("/{user_id}/password", response_model=dict, status_code=status.HTTP_200_OK, summary="Actualizar solo la contraseña del usuario", dependencies=[Depends(decode_token)])
+@router.patch("/{user_id}/password", response_model=dict, status_code=status.HTTP_200_OK, summary="Actualizar solo la contraseña del usuario")
 def update_user_password(user_id: int, password_update: PasswordUpdate, session: SessionDep):
     try:
         user_db = session.get(User, user_id)
         if not user_db:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User doesn't exist")
+        
+        # Opcional: Impedir cambio de contraseña si el usuario está eliminado.
+        if user_db.deleted is True:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot change password for a deleted user.")
         
         new_password = password_update.password
 
@@ -291,10 +315,9 @@ def update_user_password(user_id: int, password_update: PasswordUpdate, session:
 @router.delete(
     "/{user_id}", 
     status_code=status.HTTP_204_NO_CONTENT, 
-    summary="Eliminación suave de un usuario (Soft Delete)", 
-    dependencies=[Depends(decode_token)]
+    summary="Eliminación suave de un usuario (Soft Delete)"
 )
-def delete_user(user_id: int, session: SessionDep):
+def soft_delete_user(user_id: int, session: SessionDep):
     """
     Realiza una eliminación suave (Soft Delete) del usuario, 
     marcando 'deleted = True' y registrando la fecha de eliminación.
@@ -309,9 +332,13 @@ def delete_user(user_id: int, session: SessionDep):
         if user_db.deleted == True:
             return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+        current_time = datetime.utcnow()
+
         # 2. Implementar Soft Delete
+        # >>> CAMBIO CLAVE: Usar 'deleted_on'
         user_db.deleted = True # <-- Marcar como eliminado
-        user_db.deleted_at = datetime.utcnow()
+        user_db.deleted_on = current_time 
+        user_db.updated_at = current_time 
         
         session.add(user_db)
         session.commit()
@@ -322,7 +349,56 @@ def delete_user(user_id: int, session: SessionDep):
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
+        session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred during soft delete: {str(e)}",
+        )
+        
+# ----------------------------------------------------------------------
+# ENDPOINT 8: RESTAURAR USUARIO (PATCH /users/{user_id}/restore) -> NUEVO
+# ----------------------------------------------------------------------
+
+@router.patch("/{user_id}/restore", response_model=UserRead, summary="Restaura un usuario previamente eliminado")
+def restore_deleted_user(user_id: int, session: SessionDep):
+    """
+    Restaura un usuario previamente eliminado (Soft Delete), 
+    cambiando 'deleted' a False y limpiando 'deleted_on'.
+    """
+    try:
+        user_db = session.get(User, user_id)
+
+        if not user_db:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="User not found."
+            )
+        
+        # Solo permite la restauración si está actualmente eliminado
+        if user_db.deleted is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="The user is not deleted and cannot be restored."
+            )
+
+        current_time = datetime.utcnow()
+
+        # Restaurar el usuario
+        user_db.deleted = False
+        user_db.deleted_on = None  # Limpia la marca de tiempo de eliminación
+        user_db.updated_at = current_time 
+
+        session.add(user_db)
+        session.commit()
+        session.refresh(user_db)
+
+        return user_db
+    
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error restoring the user: {str(e)}",
         )

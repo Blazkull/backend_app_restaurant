@@ -1,7 +1,8 @@
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date, time
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from sqlmodel import Session, select, func, or_, Field, SQLModel, column, outerjoin, selectinload # 💡 selectinload
+from sqlmodel import Session, select, func, or_, Field, SQLModel, column, outerjoin
+from sqlalchemy.orm import selectinload
 
 # Importaciones de Core
 from core.database import SessionDep
@@ -13,7 +14,7 @@ from models.status import Status
 from schemas.orders_schema import OrderRead, OrderKitchenUpdate # 💡 OrderKitchenUpdate
 
 
-router = APIRouter(prefix="/kitchen", tags=["Panel de Cocina"])
+router = APIRouter(prefix="/api/kitchen", tags=["Panel de Cocina"] , dependencies=[Depends(decode_token)])
 
 
 # ======================================================================

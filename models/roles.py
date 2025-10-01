@@ -12,12 +12,13 @@ class Role(SQLModel, table=True):
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    deleted_at: Optional[datetime] = Field(default=None)
+    deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
+    deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
 
     # Relaciones
     status: "Status" = Relationship(back_populates="roles")
-    users: List["User"] = Relationship(back_populates="roles", link_model=UserRoleLink)# Muchos a uno a User
-    views: List["View"] = Relationship(back_populates="roles", link_model=RoleViewLink)# Muchos a uno a View
+    users: List["User"] = Relationship(back_populates="roles", link_model=UserRoleLink)
+    views: List["View"] = Relationship(back_populates="roles", link_model=RoleViewLink)
 
 
 from typing import TYPE_CHECKING

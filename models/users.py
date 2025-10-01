@@ -21,6 +21,7 @@ class User(SQLModel, table=True):
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     deleted_at: Optional[datetime] = Field(default=None)
+    deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete
 
     # Relaciones
     role: "Role" = Relationship(back_populates="users")

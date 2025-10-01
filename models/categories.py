@@ -12,11 +12,12 @@ class Category(SQLModel, table=True):
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    deleted_at: Optional[datetime] = Field(default=None)
+    deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
+    deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
 
     # Relaciones
     menu_items: List["MenuItem"] = Relationship(back_populates="category")
-from typing import TYPE_CHECKING
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .menu_items import MenuItem

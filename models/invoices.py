@@ -8,7 +8,7 @@ class Invoice(SQLModel, table=True):
     
     id: Optional[int] = Field(default=None, primary_key=True)
     
-    # Campos de Dinero (Mapeados a float con validación para ser positivos)
+    # Campos de Dinero
     returned: float = Field(ge=0) 
     ammount_paid: float = Field(ge=0)
     total: float = Field(ge=0)
@@ -21,8 +21,8 @@ class Invoice(SQLModel, table=True):
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    deleted_at: Optional[datetime] = Field(default=None)
-    deleted: bool = Field(default=False)
+    deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
+    deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
 
     # Relaciones
     client: "Client" = Relationship(back_populates="invoices")

@@ -19,3 +19,8 @@ class OrderItemRead(OrderItemBase):
     id_order: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+    deleted: bool
+    deleted_on: Optional[datetime]
+    
+    class Config:
+        from_attributes = True

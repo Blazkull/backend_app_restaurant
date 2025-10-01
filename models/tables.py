@@ -15,7 +15,8 @@ class Table(SQLModel, table=True):
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    deleted_at: Optional[datetime] = Field(default=None)
+    deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
+    deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
 
     # Relaciones
     location: "Location" = Relationship(back_populates="tables")

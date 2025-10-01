@@ -17,3 +17,8 @@ class LocationRead(LocationBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    deleted: bool
+    deleted_on: Optional[datetime]
+    
+    class Config:
+        from_attributes = True

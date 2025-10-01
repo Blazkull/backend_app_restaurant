@@ -6,7 +6,7 @@ class OrderItem(SQLModel, table=True):
     __tablename__ = "order_items"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    quantity: int = Field(nullable=False, gt=0) # gt=0 para asegurar > 0
+    quantity: int = Field(nullable=False, gt=0)
     note: Optional[str] = Field(default=None, max_length=50)
     
     # Claves Foráneas
@@ -15,7 +15,8 @@ class OrderItem(SQLModel, table=True):
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    deleted_at: Optional[datetime] = Field(default=None)
+    deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
+    deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
 
     # Relaciones
     order: "Order" = Relationship(back_populates="order_items")

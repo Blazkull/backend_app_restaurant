@@ -1,0 +1,117 @@
+from fastapi import APIRouter, Depends, status, HTTPException
+from sqlmodel import select
+from datetime import datetime
+from typing import List
+
+# Importa dependencias del Core
+from core.database import SessionDep
+from core.security import decode_token 
+
+# Asume que tienes un modelo InformationCompany
+from models.information_company import InformationCompany 
+from schemas.information_company_schema import InformationCompanyCreate, InformationCompanyRead, InformationCompanyUpdate 
+
+# Configuración del Router
+# Usaremos un único endpoint que opera sobre un recurso singular.
+router = APIRouter(
+    prefix="/api/company", 
+    tags=["INFORMATION COMPANY"], 
+    dependencies=[Depends(decode_token)]
+) 
+
+# --- FUNCIÓN AUXILIAR: Obtener el ÚNICO registro ---
+
+def get_current_company_info(session: SessionDep) -> InformationCompany:
+    """Busca el único registro de información de la compañía. Lanza 404 si no existe."""
+    company_info = session.exec(select(InformationCompany)).first()
+    if not company_info:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Information Company record not found. Please create it first (POST)."
+        )
+    return company_info
+
+
+# --- ENDPOINT 1: OBTENER INFORMACIÓN (GET /api/company) ---
+
+@router.get("", response_model=InformationCompanyRead, summary="Obtener la información única de la empresa")
+def read_company_info(session: SessionDep):
+    """
+    Recupera el único registro de información de la compañía.
+    """
+    try:
+        return get_current_company_info(session)
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al leer la información de la empresa: {str(e)}",
+        )
+
+
+# --- ENDPOINT 2: CREAR INFORMACIÓN INICIAL (POST /api/company) ---
+
+@router.post("", response_model=InformationCompanyRead, status_code=status.HTTP_201_CREATED, summary="Crear el registro inicial de información de la empresa")
+def create_company_info(company_data: InformationCompanyCreate, session: SessionDep):
+    """
+    Crea el registro único de información de la compañía. Solo se puede llamar una vez.
+    """
+    # 1. Validación: Asegurar que NO exista ya un registro
+    existing_info = session.exec(select(InformationCompany)).first()
+    if existing_info:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Information Company record already exists. Use PATCH to update."
+        )
+
+    try:
+        # 2. Creación
+        company_db = InformationCompany.model_validate(company_data.model_dump())
+        company_db.created_at = datetime.utcnow()
+        company_db.updated_at = datetime.utcnow()
+
+        session.add(company_db)
+        session.commit()
+        session.refresh(company_db)
+        
+        return company_db
+
+    except Exception as e:
+        session.rollback() 
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al crear la información de la empresa: {str(e)}",
+        )
+
+
+# --- ENDPOINT 3: ACTUALIZAR INFORMACIÓN (PATCH /api/company) ---
+
+@router.patch("", response_model=InformationCompanyRead, summary="Actualizar la información existente de la empresa")
+def update_company_info(company_data: InformationCompanyUpdate, session: SessionDep):
+    """
+    Actualiza el único registro de información de la compañía.
+    """
+    try:
+        # 1. Obtener el registro existente (usa la función auxiliar)
+        company_db = get_current_company_info(session)
+        
+        # 2. Aplicar actualización
+        data_to_update = company_data.model_dump(exclude_unset=True)
+        
+        company_db.sqlmodel_update(data_to_update)
+        company_db.updated_at = datetime.utcnow()
+        
+        session.add(company_db)
+        session.commit()
+        session.refresh(company_db)
+        return company_db
+    
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al actualizar la información de la empresa: {str(e)}",
+        )
