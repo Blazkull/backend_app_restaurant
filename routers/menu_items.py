@@ -194,6 +194,7 @@ def read_menu_item(item_id: int, session: SessionDep):
              summary="Crear nuevo ítem de menú con imagen"
 )
 async def create_menu_item_with_image(
+    session: SessionDep,
     name: str = Form(..., max_length=100),
     id_category: int = Form(...),
     ingredients: str = Form(..., max_length=255),
@@ -202,7 +203,6 @@ async def create_menu_item_with_image(
     id_status: int = Form(...),
     image: Optional[UploadFile] = File(None, description="Archivo de imagen"),
     
-    session: SessionDep
 ):
     try:
         # 1. Validaciones de FKs
@@ -268,6 +268,7 @@ async def create_menu_item_with_image(
               summary="Actualizar ítem de menú (incluye cambio/eliminación de imagen)"
 )
 async def update_menu_item(
+    session: SessionDep,
     item_id: int, 
     # Usamos Form/File para manejar el multipart/form-data
     name: Optional[str] = Form(None, max_length=100),
@@ -278,7 +279,6 @@ async def update_menu_item(
     id_status: Optional[int] = Form(None),
     image: Optional[UploadFile] = File(None, description="Nueva imagen (Enviar campo vacío o 'null' para eliminar)"),
     
-    session: SessionDep
 ):
     try:
         menu_db = session.get(MenuItem, item_id)
