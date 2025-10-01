@@ -2,9 +2,6 @@ from sqlmodel import Field, Relationship, SQLModel
 from typing import Optional
 from datetime import datetime
 
-# Asumiendo que Category y Status ya están definidos y tienen 'id'
-# from models.categories import Category # Importación circular, mejor usar strings y TYPE_CHECKING
-# from models.status import Status 
 
 class MenuItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -33,3 +30,4 @@ if TYPE_CHECKING:
     from models.categories import Category
     from models.status import Status
     from models.order_items import OrderItem
+
