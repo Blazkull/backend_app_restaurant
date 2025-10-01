@@ -22,6 +22,7 @@ class Invoice(SQLModel, table=True):
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     deleted_at: Optional[datetime] = Field(default=None)
+    deleted: bool = Field(default=False)
 
     # Relaciones
     client: "Client" = Relationship(back_populates="invoices")
