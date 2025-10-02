@@ -85,7 +85,7 @@ def decode_token(
         db_token = session.exec(
             select(DBToken)
             .where(DBToken.token == token,
-                   DBToken.user_id == user_db.id,
+                   DBToken.id_user == user_db.id,
                    DBToken.status_token == True)
         ).first()
 
