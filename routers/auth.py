@@ -57,7 +57,7 @@ def login_user(user_data: UserLogin, session: SessionDep):
         
         # Invalidar tokens existentes
         existing_tokens = session.exec(
-            select(DBToken).where(DBToken.user_id == user_db.id, DBToken.status_token == True)
+            select(DBToken).where(DBToken.id_user == user_db.id, DBToken.status_token == True)
         ).all()
         
         for token_entry in existing_tokens:
@@ -68,7 +68,7 @@ def login_user(user_data: UserLogin, session: SessionDep):
         payload = {
             "username": user_db.username, 
             "email": user_db.email,
-            "user_id": user_db.id,
+            "id_user": user_db.id,
             "role_name": role_name
         }
         encoded_jwt, expires_at = encode_token(payload)
@@ -76,7 +76,7 @@ def login_user(user_data: UserLogin, session: SessionDep):
         # Almacenar el nuevo token en la base de datos
         new_token_db = DBToken(
             token=encoded_jwt,
-            user_id=user_db.id,
+            id_user=user_db.id,
             expiration=expires_at,
             status_token=True,
             date_token=datetime.now(timezone.utc)
