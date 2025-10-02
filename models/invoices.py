@@ -1,6 +1,9 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from sqlmodel import Field, SQLModel, Relationship
+
+
+
 
 class Invoice(SQLModel, table=True):
     """Modelo para 'invoices' (Facturas)."""
@@ -24,17 +27,15 @@ class Invoice(SQLModel, table=True):
     deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
     deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
 
-    # Relaciones
     client: "Client" = Relationship(back_populates="invoices")
     order: "Order" = Relationship(back_populates="invoice")
     payment_method: "PaymentMethod" = Relationship(back_populates="invoices")
     status: "Status" = Relationship(back_populates="invoices")
 
-
 from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
+if TYPE_CHECKING:   
     from models.clients import Client
     from models.orders import Order
     from models.payment_method import PaymentMethod
     from models.status import Status
+    

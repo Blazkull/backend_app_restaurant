@@ -4,14 +4,14 @@ from datetime import datetime
 
 
 class UserRoleLink(SQLModel, table=True):
-    __tablename__ = "user_roles"
+    __tablename__ = "user_role_link"
     
     id_user: Optional[int] = Field(default=None, primary_key=True, foreign_key="users.id")
     id_role: Optional[int] = Field(default=None, primary_key=True, foreign_key="roles.id")
 
 
 class RoleViewLink(SQLModel, table=True):
-    __tablename__ = "role_views"
+    __tablename__ = "role_view_link"
     
     id_role: Optional[int] = Field(default=None, primary_key=True, foreign_key="roles.id")
     id_view: Optional[int] = Field(default=None, primary_key=True, foreign_key="views.id")

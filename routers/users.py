@@ -10,11 +10,13 @@ from core.database import SessionDep
 from core.security import decode_token, hash_password, verify_password
 
 # Importaciones de Modelos y Schemas
-from models.users import User # Asume que ahora tiene 'deleted' y 'deleted_on'
+from models.users import User 
 from models.status import Status
 from models.roles import Role 
 from schemas.users_schema import UserRead, UserCreate, UserUpdate, PasswordUpdate
+from models.users import User # Importamos User para el tipo de retorno en la dependencia
 
+# El depends(decode_token) aquí asegura que se ejecute la validación del token antes de cualquier endpoint
 router = APIRouter(prefix="/api/users", tags=["Usuarios"], dependencies=[Depends(decode_token)]) 
 
 
@@ -43,12 +45,18 @@ def read_users(
     role_name: Optional[str] = Query(default=None, description="Filtrar por nombre del rol (ej: 'Administrador', 'Cajero')."),
 
     # Búsqueda por Nombre de Usuario (parcial)
-    username_search: Optional[str] = Query(default=None, description="Buscar por nombre de usuario (parcialmente).")
-
+    username_search: Optional[str] = Query(default=None, description="Buscar por nombre de usuario (parcialmente)."),
+    
+    # Dependencia que valida el token y retorna el usuario autenticado (aunque no se use directamente, asegura el acceso)
+    current_user: User = Depends(decode_token) # Se declara para asegurar que se ejecute la dependencia
 ) -> List[UserRead]:
     """
     Lista usuarios permitiendo filtros y paginación, **excluyendo a los usuarios con deleted=True por defecto**.
     """
+    
+    # Opcional: Agregar aquí validación de permisos (ej. solo el rol 'Administrador' puede listar)
+    # if current_user.role.name != "Administrador":
+    #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para listar usuarios.")
     
     query = select(User)
     

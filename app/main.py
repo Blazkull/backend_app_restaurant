@@ -19,7 +19,8 @@ sys.path.append(str(ROOT_DIR))
 from core.database import create_db_and_tables, engine, ping_database 
 
 # --- Importación de Routers ---
-# Importamos todos los routers listados, EXCLUYENDO 'invoices'
+from routers import login
+from routers import auth  
 from routers import users 
 from routers import roles 
 from routers import information_company
@@ -34,6 +35,7 @@ from routers import payment_method
 from routers import status
 from routers import tables
 from routers import type_identification
+
 
 
 # Cargar variables de entorno desde .env
@@ -86,7 +88,8 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static") 
 
 # --- Inclusión de Routers (Rutas de la API) ---
-# Asumiendo que cada router ya tiene su prefijo completo (ej: prefix="/api/roles")
+app.include_router(login.router)
+app.include_router(auth.router)
 app.include_router(users.router) 
 app.include_router(roles.router) 
 app.include_router(information_company.router)
@@ -101,6 +104,7 @@ app.include_router(payment_method.router)
 app.include_router(status.router)
 app.include_router(tables.router)
 app.include_router(type_identification.router)
+
 
 
 # --- Ruta Raíz de Bienvenida ---

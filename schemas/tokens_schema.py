@@ -14,3 +14,9 @@ class TokenCreate(TokenBase):
 
 class TokenRead(TokenBase):
     id: int
+
+class AccessTokenResponse(SQLModel):
+    """Schema usado para la respuesta del endpoint de login."""
+    access_token: str
+    token_type: str = Field(default="bearer")
+    role_name: str
