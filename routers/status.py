@@ -57,12 +57,11 @@ def read_status(status_id: int, session: SessionDep):
 
 # --- RUTA PARA CREACIÓN (POST) ---
 
-@router.post("", response_model=StatusRead, status_code=status.HTTP_201_CREATED) # Ruta: /api/status
+@router.post("", response_model=StatusRead, status_code=status.HTTP_201_CREATED, summary="Crea un nuevo estado, validando que el nombre sea único entre los activos.") # Ruta: /api/status
 def create_status(status_data: StatusCreate, session: SessionDep):
-    """Crea un nuevo estado, validando que el nombre sea único entre los activos."""
+
     try:
         # Validación de Unicidad por nombre (solo para registros activos)
-        # >>> CAMBIO 3: Filtra por 'deleted == False'
         existing_status = session.exec(
             select(Status)
             .where(Status.name == status_data.name)
@@ -172,7 +171,7 @@ def soft_delete_status(status_id: int, session: SessionDep):
         session.add(status_db)
         session.commit()
         
-        return {"message": f"Estado (ID: {status_id}) eliminado (Soft Delete) exitosamente el {current_time.isoformat()}."}
+        return {"message": f"Estado {status_db.name} (ID: {status_id}) ha sido eliminado  exitosamente el {current_time.isoformat()}."}
     
     except HTTPException as http_exc:
         raise http_exc

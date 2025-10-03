@@ -26,6 +26,7 @@ class UserUpdate(SQLModel):
     id_status: Optional[int] = None
     additional_role_ids: Optional[List[int]] = None
     deleted: Optional[bool] = None 
+    
 
 class UserRead(UserBase):
     id: int

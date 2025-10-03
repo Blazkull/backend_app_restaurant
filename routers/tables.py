@@ -123,6 +123,14 @@ def create_table(table_data: TableCreate, session: SessionDep):
             .where(Table.name == table_data.name)
             .where(Table.deleted == False)
         ).first()
+        # Validación de capacidad (si se proporciona)
+        if capacity_table_max := 20:
+            if table_data.capacity > capacity_table_max or table_data.capacity <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, 
+                    detail=f"La capacidad de la mesa debe ser un número positivo y no mayor a {capacity_table_max}."
+                )
+            
         if existing_table:
             raise HTTPException(
                status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ya existe una mesa activa con el nombre/número: '{table_data.name}'." 
@@ -158,8 +166,18 @@ def update_table(table_id: int, table_data: TableUpdate, session: SessionDep):
     try:
         table_db = session.get(Table, table_id)
 
+
+
+        # Validación de capacidad (si se proporciona)
+        if table_data.capacity is not None:
+            if capacity_table_max := 20:
+                if table_data.capacity > capacity_table_max or table_data.capacity <= 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST, 
+                        detail=f"La capacidad de la mesa debe ser un número positivo y no mayor a {capacity_table_max}."
+                    )
+        
         # Validación: La mesa debe existir y no estar eliminada
-        # >>> CAMBIO 5: Validación con 'deleted is True'
         if not table_db or table_db.deleted is True:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Mesa no encontrada o eliminada."
@@ -202,9 +220,9 @@ def update_table(table_id: int, table_data: TableUpdate, session: SessionDep):
 # ----------------------------------------------------------------------
 # ENDPOINT 6: ELIMINAR MESA (DELETE /tables/{table_id}) - SOFT DELETE
 # ----------------------------------------------------------------------
-@router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Realiza la eliminación suave de una mesa")
+@router.delete("/{table_id}", status_code=status.HTTP_200_OK, response_model=dict, summary="Realiza la eliminación suave de una mesa")
 def soft_delete_table(table_id: int, session: SessionDep):
-    """Realiza la 'Eliminación Suave' de una mesa, marcando 'deleted=True'."""
+    """Realiza la 'Eliminación Suave' de una mesa, marcando 'deleted=True', y devuelve un JSON de confirmación."""
     try:
         table_db = session.get(Table, table_id)
 
@@ -213,21 +231,21 @@ def soft_delete_table(table_id: int, session: SessionDep):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Mesa no encontrada."
             )
         
-        # >>> CAMBIO 7: Usar 'deleted is True'
+        # Solo permite eliminar si no está ya eliminada 
         if table_db.deleted is True:
-            return Response(status_code=status.HTTP_204_NO_CONTENT)
+            return {"message": f"La Mesa (ID: {table_id}) ya estaba marcada como eliminada."}
 
         current_time = datetime.utcnow()
 
         # Aplicar Soft Delete
-        # >>> CAMBIO 8: Asignar deleted=True y deleted_on
         table_db.deleted = True
         table_db.deleted_on = current_time
         table_db.updated_at = current_time
         session.add(table_db)
         session.commit()
         
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        # Devolvemos el mensaje de éxito en JSON
+        return {"message": f"{table_db.name} (ID: {table_id}) ha sido eliminada exitosamente el {current_time.isoformat()}."}
     
     except HTTPException as http_exc:
         raise http_exc
@@ -237,7 +255,6 @@ def soft_delete_table(table_id: int, session: SessionDep):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al eliminar la mesa: {str(e)}",
         )
-
 # ----------------------------------------------------------------------
 # ENDPOINT 7: RESTAURAR MESA (PATCH /tables/{table_id}/restore)
 # ----------------------------------------------------------------------
