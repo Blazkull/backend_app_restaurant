@@ -3,9 +3,8 @@
 from datetime import datetime, timedelta, timezone 
 from sqlmodel import select
 from typing import Annotated
-from fastapi import Depends, status 
+from fastapi import Depends, status, HTTPException 
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.exceptions import HTTPException 
 
 from jose import JWTError, jwt
 import bcrypt
@@ -15,19 +14,18 @@ import os
 
 # Importaciones de Modelos y Tipos
 from models.users import User
-from models.tokens import Token as DBToken # DBToken es el alias de tu modelo Token
+from models.tokens import Token as DBToken 
+from models.views import View # Necesario para buscar el recurso
+from models.link_models import RoleViewLink # Necesario para el permiso
 from core.database import SessionDep
 
-# Importación clave para cargar relaciones (SOLUCIÓN AL ERROR 500 DE LAZY LOADING)
 from sqlalchemy.orm import selectinload 
 
 load_dotenv()
 SECRET_KEY= os.getenv('SECRET_KEY')
 ALGORITHM= os.getenv('ALGORITHM')
-# Asegúrate de que esta variable esté definida en tu .env y sea un entero
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES')) 
 
-# Define el esquema de seguridad para Swagger/OpenAPI
 outh2_scheme= OAuth2PasswordBearer(tokenUrl="api/auth/login") 
 
 # ----------------------------------------------------------------------
@@ -66,9 +64,7 @@ def decode_token(
     session: SessionDep
 ) -> User:
     """
-    Decodifica el token, valida al usuario y sus permisos, y verifica la validez del token en DB.
-    
-    Esta función es usada como dependencia para proteger endpoints.
+    Decodifica el token, valida al usuario y sus relaciones, y verifica la validez del token en DB.
     """
     try:
         data = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -85,28 +81,20 @@ def decode_token(
             .options(selectinload(User.status))
             .options(selectinload(User.role)) 
         )
-        # ❗ Solo una ejecución del query
         user_db = session.exec(statement).first()
         
         if user_db is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
         # 2. VALIDACIONES DEL USUARIO
-        # Validador si está eliminado (Soft Delete)
-        if user_db.deleted:
+        if user_db.deleted or (user_db.status and user_db.status.name in ["Inactivo", "Suspendido"]): 
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
-                                detail="User deleted. Please, contact your system manager") 
-        
-        # Validador de estado del usuario (usando la relación cargada 'status')
-        if user_db.status and user_db.status.name in ["Inactivo", "Suspendido"]: 
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
-                                detail=f"User is currently {user_db.status.name}. Contact your system manager.")
+                                detail="User is deleted or inactive. Contact system manager.")
         
         # 3. COMPROBACIÓN DEL TOKEN EN LA BASE DE DATOS
         db_token = session.exec(
             select(DBToken)
             .where(DBToken.token == token,
-                   # ✅ CORRECCIÓN FINAL: Usamos id_user, según tu modelo Token
                    DBToken.id_user == user_db.id,
                    DBToken.status_token == True)
         ).first()
@@ -117,15 +105,61 @@ def decode_token(
         
         return user_db
 
-    except JWTError as e: 
-        print(f"JWT Error (Invalid Token): {e}")
+    except JWTError: 
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, 
-                            detail="Invalid or expired token")
+                            detail="Invalid or expired token.")
     except HTTPException:
-        # Permite que las excepciones de FastAPI suban sin ser capturadas
         raise
     except Exception as e:
-        # Esto captura cualquier error fatal de DB (incluyendo si Token, Status o Role no están mapeados o DBToken.id_user no existe)
+        # Captura cualquier error de DB/carga
         print(f"FATAL ERROR IN DECODE_TOKEN: {e}") 
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
                             detail="An unexpected error occurred while validating the token.")
+
+
+# ----------------------------------------------------------------------
+# DEPENDENCIA DE AUTORIZACIÓN (Permisos)
+# ----------------------------------------------------------------------
+
+def check_permission(view_path: str):
+    """
+    Dependencia de FastAPI para verificar si el usuario autenticado tiene acceso a una vista/path específico.
+    """
+    # 🚨 NOTA CLAVE: La función interna 'permission_verifier' tiene la indentación correcta aquí.
+    def permission_verifier(
+        current_user: User = Depends(decode_token), # Primero autentica y carga el usuario
+        session: SessionDep = Depends(SessionDep)
+    ):
+        # 1. Buscar la Vista/Recurso en la DB por su PATH
+        view_db = session.exec(
+            select(View).where(View.path == view_path, View.deleted == False)
+        ).first()
+        
+        # Si la vista no existe en la DB, es un recurso no controlado/registrado
+        if not view_db:
+             # Por defecto, denegamos el acceso a paths no registrados para máxima seguridad (Fail-Safe)
+             raise HTTPException(
+                 status_code=status.HTTP_403_FORBIDDEN, 
+                 detail=f"Recurso no registrado o eliminado: {view_path}"
+             )
+
+        # 2. Verificar el Rol Principal del Usuario contra el Permiso
+        permission_link = session.exec(
+            select(RoleViewLink).where(
+                RoleViewLink.id_role == current_user.id_role,
+                RoleViewLink.id_view == view_db.id,
+                RoleViewLink.enabled == True # El permiso debe estar activo
+            )
+        ).first()
+
+        if not permission_link:
+            # Si no se encuentra el permiso, denegar el acceso
+            # Utilizamos la relación cargada 'role.name' para dar mejor feedback.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail=f"Permiso denegado: Su rol ({current_user.role.name}) no tiene acceso a la vista '{view_db.name}'."
+            )
+        
+        return True # Autorización exitosa
+
+    return permission_verifier

@@ -3,27 +3,38 @@ from sqlmodel import select
 from datetime import datetime
 from typing import List
 from starlette.responses import Response
-
+import os
 # Importa dependencias y modelos
 from core.database import SessionDep
-from core.security import decode_token 
+# Importación clave para la AUTORIZACIÓN
+from core.security import check_permission 
 from models.roles import Role 
 from models.views import View
-from models.link_models import RoleViewLink # <-- USANDO EL MODELO DE ENLACE
+from models.link_models import RoleViewLink 
 from schemas.roles_schema import RoleCreate, RoleRead, RoleUpdate
 from schemas.role_view_link_schema import RoleViewUpdateStatus
 
+
+ADMIN_ROLES_PATH: str = os.getenv("ADMIN_ROLES_PATH")
+
+
+# El router no lleva dependencias globales; estas se aplican a nivel de endpoint
+# para permitir un control de permisos granular.
 router = APIRouter(
     prefix="/api/roles", 
-    tags=["ROLES"], 
-    dependencies=[Depends(decode_token)]
+    tags=["ROLES"]
 ) 
 
-# ----------------------------------------------------------------------
-# ENDPOINT 1: LISTAR ROLES ACTIVOS (GET /roles)
-# ----------------------------------------------------------------------
+# ---
+## 1. Listar Roles Activos (GET /roles)
 
-@router.get("", response_model=List[RoleRead], summary="Listar roles activos")
+@router.get(
+    "", 
+    response_model=List[RoleRead], 
+    summary="Listar roles activos",
+    # 🚨 Permiso requerido: /api/roles (para leer la lista)
+    dependencies=[Depends(check_permission(ADMIN_ROLES_PATH))] 
+)
 def list_roles(session: SessionDep):
     """Obtiene una lista de todos los roles activos (deleted=False)."""
     try:
@@ -32,11 +43,17 @@ def list_roles(session: SessionDep):
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al listar roles: {str(e)}")
 
-# ----------------------------------------------------------------------
-# ENDPOINT 2: CREAR ROL (POST /roles)
-# ----------------------------------------------------------------------
+# ---
+## 2. Crear Rol (POST /roles)
 
-@router.post("", response_model=RoleRead, status_code=status.HTTP_201_CREATED, summary="Crear nuevo rol y asignarle permisos por defecto")
+@router.post(
+    "", 
+    response_model=RoleRead, 
+    status_code=status.HTTP_201_CREATED, 
+    summary="Crear nuevo rol y asignarle permisos por defecto",
+    # 🚨 Permiso requerido: /api/roles (para crear un nuevo rol)
+    dependencies=[Depends(check_permission(ADMIN_ROLES_PATH))] 
+)
 def create_role(role_data: RoleCreate, session: SessionDep):
     """Crea un nuevo rol, valida unicidad, y le asigna todas las vistas con enabled=True."""
     try:
@@ -82,11 +99,16 @@ def create_role(role_data: RoleCreate, session: SessionDep):
         session.rollback() 
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al crear el rol: {str(e)}")
 
-# ----------------------------------------------------------------------
-# ENDPOINT 3: ACTUALIZAR ROL (PATCH /roles/{role_id})
-# ----------------------------------------------------------------------
+# ---
+## 3. Actualizar Rol (PATCH /roles/{role_id})
 
-@router.patch("/{role_id}", response_model=RoleRead, summary="Actualiza nombre y/o estado de un rol")
+@router.patch(
+    "/{role_id}", 
+    response_model=RoleRead, 
+    summary="Actualiza nombre y/o estado de un rol",
+    # 🚨 Permiso requerido: /api/roles (para editar un rol)
+    dependencies=[Depends(check_permission(ADMIN_ROLES_PATH))] 
+)
 def update_role(role_id: int, role_data: RoleUpdate, session: SessionDep):
     """Actualiza campos del rol, manteniendo la unicidad del nombre."""
     try:
@@ -119,11 +141,16 @@ def update_role(role_id: int, role_data: RoleUpdate, session: SessionDep):
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al actualizar el rol: {str(e)}")
 
-# ----------------------------------------------------------------------
-# ENDPOINT 4: ELIMINAR ROL (DELETE /roles/{role_id}) - SOFT DELETE
-# ----------------------------------------------------------------------
+# ---
+## 4. Eliminar Rol (DELETE /roles/{role_id}) - Soft Delete
 
-@router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Realiza la eliminación suave de un rol")
+@router.delete(
+    "/{role_id}", 
+    status_code=status.HTTP_204_NO_CONTENT, 
+    summary="Realiza la eliminación suave de un rol",
+    # 🚨 Permiso requerido: /api/roles (para eliminar un rol)
+    dependencies=[Depends(check_permission(ADMIN_ROLES_PATH))] 
+)
 def soft_delete_role(role_id: int, session: SessionDep):
     """Realiza la 'Eliminación Suave' de un rol, marcando 'deleted=True' y 'deleted_on'."""
     try:
@@ -152,11 +179,16 @@ def soft_delete_role(role_id: int, session: SessionDep):
         session.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al eliminar el rol: {str(e)}")
 
-# ----------------------------------------------------------------------
-# ENDPOINT 5: ACTUALIZAR PERMISOS POR ROL (PATCH /roles/{role_id}/permissions)
-# ----------------------------------------------------------------------
+# ---
+## 5. Actualizar Permisos por Rol (PATCH /roles/{role_id}/permissions)
 
-@router.patch("/{role_id}/permissions", response_model=List[RoleViewUpdateStatus], summary="Actualiza el estado de los permisos (habilitado/deshabilitado) para un rol específico")
+@router.patch(
+    "/{role_id}/permissions", 
+    response_model=List[RoleViewUpdateStatus], 
+    summary="Actualiza el estado de los permisos (habilitado/deshabilitado) para un rol específico",
+    # 🚨 Permiso requerido: /api/roles (para modificar los permisos)
+    dependencies=[Depends(check_permission("/api/roles"))]
+)
 def update_role_permissions(
     role_id: int, 
     permission_updates: List[RoleViewUpdateStatus], 
@@ -207,3 +239,43 @@ def update_role_permissions(
     except Exception as e:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al actualizar permisos: {str(e)}")
+    
+# ---
+## 6. Obtener Permisos de un Rol Específico (GET /roles/{role_id}/permissions)
+
+@router.get(
+    "/{role_id}/permissions", 
+    response_model=List[RoleViewUpdateStatus], # Reutilizamos este schema para la lectura
+    summary="Obtiene la lista de vistas y su estado de permiso para un rol",
+    # 🚨 Permiso requerido: /api/roles (para ver los permisos del rol)
+    dependencies=[Depends(check_permission(ADMIN_ROLES_PATH))] 
+)
+def get_role_permissions(
+    role_id: int, 
+    session: SessionDep
+):
+    """
+    Recupera todos los enlaces RoleViewLink (permisos) de un rol. 
+    Esto incluye todas las vistas que el rol puede tener, junto con su estado 'enabled'.
+    """
+    try:
+        # 1. Verificar la existencia del rol
+        role_db = session.get(Role, role_id)
+        if not role_db or role_db.deleted is True:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rol no encontrado o eliminado.")
+
+        # 2. Obtener todos los enlaces RoleViewLink para el rol
+        statement = select(RoleViewLink).where(RoleViewLink.id_role == role_id)
+        permissions_links = session.exec(statement).all()
+        
+        if not permissions_links:
+             # Si no hay enlaces, significa que el rol no tiene vistas asignadas (quizás Views está vacío)
+             return []
+        
+        return permissions_links
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        # Esto atrapará cualquier error de DB o de carga de relaciones
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al obtener permisos: {str(e)}")

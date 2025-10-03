@@ -2,31 +2,36 @@ from fastapi import APIRouter, Depends, status, HTTPException
 from sqlmodel import select
 from datetime import datetime
 from typing import List
+import os
 
 # Importa las dependencias del Core
 from core.database import SessionDep
-from core.security import decode_token 
+from core.security import decode_token, check_permission 
 
-from models.status import Status # Asume que ahora tiene 'deleted' y 'deleted_on'
+from models.status import Status 
 from schemas.status_schema import StatusCreate, StatusRead, StatusUpdate 
 
-# Configuración del Router
+# Definimos el path de permiso para la administración de estados:
+ADMIN_STATUS_PATH : str = os.getenv("ADMIN_ROLES_PATH")
+
+
 router = APIRouter(
     prefix="/api/status", 
     tags=["STATUS"], 
-    dependencies=[Depends(decode_token)]
+    dependencies=[Depends(decode_token)] # Asegura autenticación global
 ) 
 
 
-# --- RUTAS DE LECTURA (GET) ---
+# ----------------------------------------------------------------------
+# ENDPOINT 1: LISTAR ESTADOS ACTIVOS (GET /status)
+# ----------------------------------------------------------------------
 
-@router.get("", response_model=List[StatusRead]) # Ruta: /api/status
+@router.get("", response_model=List[StatusRead], summary="Listar estados activos") 
 def list_status(session: SessionDep):
     """
     Obtiene una lista de todos los estados **activos** (deleted=False).
     """
     try:
-        # >>> CAMBIO 1: Filtra por 'deleted == False'
         statement = select(Status).where(Status.deleted == False)
         return session.exec(statement).all()
     except Exception as e:
@@ -35,13 +40,15 @@ def list_status(session: SessionDep):
             detail=f"Error al listar los estados: {str(e)}",
         )
 
-@router.get("/{status_id}", response_model=StatusRead) # Ruta: /api/status/{status_id}
+# ----------------------------------------------------------------------
+# ENDPOINT 2: OBTENER ESTADO POR ID (GET /status/{status_id})
+# ----------------------------------------------------------------------
+@router.get("/{status_id}", response_model=StatusRead, summary="Obtiene un estado específico por su ID") 
 def read_status(status_id: int, session: SessionDep):
     """Obtiene un estado específico por su ID. Solo devuelve estados activos."""
     try:
         status_db = session.get(Status, status_id)
         
-        # >>> CAMBIO 2: Validación con 'deleted is True'
         if not status_db or status_db.deleted is True:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Estado no encontrado o eliminado."
@@ -55,9 +62,18 @@ def read_status(status_id: int, session: SessionDep):
             detail=f"Error al leer el estado: {str(e)}",
         )
 
-# --- RUTA PARA CREACIÓN (POST) ---
+# ----------------------------------------------------------------------
+# ENDPOINT 3: CREAR ESTADO (POST /status)
+# ----------------------------------------------------------------------
 
-@router.post("", response_model=StatusRead, status_code=status.HTTP_201_CREATED, summary="Crea un nuevo estado, validando que el nombre sea único entre los activos.") # Ruta: /api/status
+@router.post(
+    "", 
+    response_model=StatusRead, 
+    status_code=status.HTTP_201_CREATED, 
+    summary="Crea un nuevo estado",
+    # 🚨 PROTECCIÓN 1: Permiso para crear estados
+    dependencies=[Depends(check_permission(ADMIN_STATUS_PATH))]
+) 
 def create_status(status_data: StatusCreate, session: SessionDep):
 
     try:
@@ -76,7 +92,6 @@ def create_status(status_data: StatusCreate, session: SessionDep):
         status_db = Status.model_validate(status_data.model_dump())
         status_db.created_at = datetime.utcnow()
         status_db.updated_at = datetime.utcnow()
-        # 'deleted' y 'deleted_on' se establecen por defecto (False y None)
 
         session.add(status_db)
         session.commit()
@@ -85,6 +100,7 @@ def create_status(status_data: StatusCreate, session: SessionDep):
         return status_db
 
     except HTTPException as http_exc:
+        session.rollback() 
         raise http_exc
     except Exception as e:
         session.rollback() 
@@ -93,15 +109,22 @@ def create_status(status_data: StatusCreate, session: SessionDep):
             detail=f"Error al crear el estado: {str(e)}",
         )
 
-# --- RUTA PARA ACTUALIZACIÓN (PATCH) ---
+# ----------------------------------------------------------------------
+# ENDPOINT 4: ACTUALIZAR ESTADO (PATCH /status/{status_id})
+# ----------------------------------------------------------------------
 
-@router.patch("/{status_id}", response_model=StatusRead) # Ruta: /api/status/{status_id}
+@router.patch(
+    "/{status_id}", 
+    response_model=StatusRead,
+    summary="Actualiza el nombre y/o descripción del estado",
+    # 🚨 PROTECCIÓN 2: Permiso para actualizar estados
+    dependencies=[Depends(check_permission(ADMIN_STATUS_PATH))]
+) 
 def update_status(status_id: int, status_data: StatusUpdate, session: SessionDep):
     """Actualiza el nombre y/o descripción del estado, manteniendo la unicidad."""
     try:
         status_db = session.get(Status, status_id)
 
-        # >>> CAMBIO 4: Validación con 'deleted is True'
         if not status_db or status_db.deleted is True:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Estado no encontrado o eliminado."
@@ -111,7 +134,6 @@ def update_status(status_id: int, status_data: StatusUpdate, session: SessionDep
         
         # Validación de unicidad si se intenta cambiar el nombre
         if "name" in data_to_update and data_to_update["name"] != status_db.name:
-            # >>> CAMBIO 5: Filtra por 'deleted == False'
             existing_status = session.exec(
                 select(Status)
                 .where(Status.name == data_to_update["name"])
@@ -135,14 +157,24 @@ def update_status(status_id: int, status_data: StatusUpdate, session: SessionDep
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
+        session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al actualizar el estado: {str(e)}",
         )
 
-# --- RUTA PARA ELIMINACIÓN SUAVE (DELETE) ---
+# ----------------------------------------------------------------------
+# ENDPOINT 5: ELIMINACIÓN SUAVE (DELETE /status/{status_id})
+# ----------------------------------------------------------------------
 
-@router.delete("/{status_id}", status_code=status.HTTP_200_OK, response_model=dict) # Ruta: /api/status/{status_id}
+@router.delete(
+    "/{status_id}", 
+    status_code=status.HTTP_200_OK, 
+    response_model=dict,
+    summary="Realiza la eliminación suave de un estado",
+    # 🚨 PROTECCIÓN 3: Permiso para eliminar estados
+    dependencies=[Depends(check_permission(ADMIN_STATUS_PATH))]
+) 
 def soft_delete_status(status_id: int, session: SessionDep):
     """Realiza la 'Eliminación Suave' de un estado, marcando 'deleted=True'."""
     try:
@@ -153,25 +185,19 @@ def soft_delete_status(status_id: int, session: SessionDep):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Estado no encontrado."
             )
         
-        # >>> CAMBIO 6: Usar 'deleted is True'
         if status_db.deleted is True:
             return {"message": f"El Estado (ID: {status_id}) ya estaba marcado como eliminado."}
-
-        # NOTA: En un entorno de producción, aquí se debería validar si este
-        # estado está siendo referenciado por órdenes u otras entidades
-        # para evitar inconsistencias.
 
         current_time = datetime.utcnow()
 
         # Aplicar Soft Delete
-        # >>> CAMBIO 7: Asignar deleted=True y deleted_on
         status_db.deleted = True
         status_db.deleted_on = current_time
         status_db.updated_at = current_time
         session.add(status_db)
         session.commit()
         
-        return {"message": f"Estado {status_db.name} (ID: {status_id}) ha sido eliminado  exitosamente el {current_time.isoformat()}."}
+        return {"message": f"Estado {status_db.name} (ID: {status_id}) ha sido eliminado exitosamente el {current_time.isoformat()}."}
     
     except HTTPException as http_exc:
         raise http_exc
@@ -182,9 +208,17 @@ def soft_delete_status(status_id: int, session: SessionDep):
             detail=f"Error al eliminar el estado: {str(e)}",
         )
 
-# --- RUTA PARA RESTAURACIÓN (PATCH /restore) ---
+# ----------------------------------------------------------------------
+# ENDPOINT 6: RESTAURACIÓN (PATCH /status/{status_id}/restore)
+# ----------------------------------------------------------------------
 
-@router.patch("/{status_id}/restore", response_model=StatusRead) # Ruta: /api/status/{status_id}/restore
+@router.patch(
+    "/{status_id}/restore", 
+    response_model=StatusRead,
+    summary="Restaura un estado previamente eliminado",
+    # 🚨 PROTECCIÓN 4: Permiso para restaurar estados
+    dependencies=[Depends(check_permission(ADMIN_STATUS_PATH))]
+) 
 def restore_deleted_status(status_id: int, session: SessionDep):
     """
     Restaura un estado previamente eliminado (Soft Delete), 
@@ -223,7 +257,7 @@ def restore_deleted_status(status_id: int, session: SessionDep):
 
         # Restaurar el estado
         status_db.deleted = False
-        status_db.deleted_on = None  # Limpia la marca de tiempo de eliminación
+        status_db.deleted_on = None 
         status_db.updated_at = current_time 
 
         session.add(status_db)

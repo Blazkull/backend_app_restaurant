@@ -4,20 +4,24 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from pydantic import ValidationError
 from sqlmodel import select
 from starlette.responses import Response
+import os
 
 # Importaciones de Core
 from core.database import SessionDep
-from core.security import decode_token, hash_password, verify_password
+# 🚨 CAMBIO CLAVE: Importar check_permission para autorización 🚨
+from core.security import decode_token, hash_password, verify_password, check_permission
 
 # Importaciones de Modelos y Schemas
 from models.users import User 
 from models.status import Status
 from models.roles import Role 
 from schemas.users_schema import UserRead, UserCreate, UserUpdate, PasswordUpdate
-from models.users import User # Importamos User para el tipo de retorno en la dependencia
+# from models.users import User # Esto es redundante si ya se importó arriba
 
-# El depends(decode_token) aquí asegura que se ejecute la validación del token antes de cualquier endpoint
-router = APIRouter(prefix="/api/users", tags=["Usuarios"], dependencies=[Depends(decode_token)]) 
+# Definimos el path de permiso para la administración de usuarios:
+ADMIN_USER_PATH: str = os.getenv("ADMIN_USER_PATH")
+
+router = APIRouter(prefix="/api/users", tags=["Usuarios"]) 
 
 
 # ----------------------------------------------------------------------
@@ -27,7 +31,9 @@ router = APIRouter(prefix="/api/users", tags=["Usuarios"], dependencies=[Depends
 @router.get(
     "/", 
     response_model=List[UserRead], 
-    summary="Listar y filtrar usuarios activos con paginación"
+    summary="Listar y filtrar usuarios activos con paginación",
+    # 🚨 PROTECCIÓN 1: Permiso para listar usuarios
+    dependencies=[Depends(check_permission(ADMIN_USER_PATH))] 
 )
 def read_users(
     session: SessionDep,
@@ -47,16 +53,11 @@ def read_users(
     # Búsqueda por Nombre de Usuario (parcial)
     username_search: Optional[str] = Query(default=None, description="Buscar por nombre de usuario (parcialmente)."),
     
-    # Dependencia que valida el token y retorna el usuario autenticado (aunque no se use directamente, asegura el acceso)
-    current_user: User = Depends(decode_token) # Se declara para asegurar que se ejecute la dependencia
+    # current_user ya no se necesita aquí, lo maneja check_permission
 ) -> List[UserRead]:
     """
     Lista usuarios permitiendo filtros y paginación, **excluyendo a los usuarios con deleted=True por defecto**.
     """
-    
-    # Opcional: Agregar aquí validación de permisos (ej. solo el rol 'Administrador' puede listar)
-    # if current_user.role.name != "Administrador":
-    #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para listar usuarios.")
     
     query = select(User)
     
@@ -106,7 +107,9 @@ def read_users(
 @router.get(
     "/deleted", 
     response_model=List[UserRead], 
-    summary="Listar usuarios marcados como eliminados (deleted=True)"
+    summary="Listar usuarios marcados como eliminados (deleted=True)",
+    # 🚨 PROTECCIÓN 2: Permiso para ver la papelera de reciclaje
+    dependencies=[Depends(check_permission(ADMIN_USER_PATH))] 
 )
 def read_deleted_users(
     session: SessionDep,
@@ -132,7 +135,13 @@ def read_deleted_users(
 # ENDPOINT 3: OBTENER USUARIO POR ID (GET /users/{user_id}) -> SOLO ACTIVOS
 # ----------------------------------------------------------------------
 
-@router.get("/{user_id}", response_model=UserRead, summary="Obtener un usuario por ID (excluye eliminados)")
+@router.get(
+    "/{user_id}", 
+    response_model=UserRead, 
+    summary="Obtener un usuario por ID (excluye eliminados)",
+    # 🚨 PROTECCIÓN 3: Permiso para ver un usuario individual
+    dependencies=[Depends(check_permission(ADMIN_USER_PATH))] 
+)
 def read_user(user_id: int, session: SessionDep):
     """
     Busca un usuario por su ID. Retorna 404 si no existe O si está marcado como eliminado.
@@ -164,7 +173,14 @@ def read_user(user_id: int, session: SessionDep):
 # ENDPOINT 4: CREAR USUARIO (POST /users/)
 # ----------------------------------------------------------------------
 
-@router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED, summary="Crear un nuevo usuario")
+@router.post(
+    "/", 
+    response_model=UserRead, 
+    status_code=status.HTTP_201_CREATED, 
+    summary="Crear un nuevo usuario",
+    # 🚨 PROTECCIÓN 4: Permiso para crear usuarios
+    dependencies=[Depends(check_permission(ADMIN_USER_PATH))] 
+)
 def create_user(user_data: UserCreate, session: SessionDep):
 
     try:
@@ -174,9 +190,7 @@ def create_user(user_data: UserCreate, session: SessionDep):
                 status_code=status.HTTP_400_BAD_REQUEST, detail="The password must be at least 6 characters."
             )
         
-        # 2. Validar unicidad de username y email (solo entre usuarios NO eliminados)
-        # Se requiere unicidad estricta para username y email en la tabla (incluyendo eliminados)
-        # La convención general es: si un usuario eliminado tiene un username/email, no se puede reutilizar.
+        # 2. Validar unicidad de username y email (incluye eliminados, por la integridad de la PK/UK)
         if session.exec(select(User).where(User.username == user_data.username)).first():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered") 
         
@@ -211,12 +225,19 @@ def create_user(user_data: UserCreate, session: SessionDep):
 # ENDPOINT 5: ACTUALIZAR USUARIO (PATCH /users/{user_id})
 # ----------------------------------------------------------------------
 
-@router.patch("/{user_id}", response_model=UserRead, status_code=status.HTTP_200_OK, summary="Actualizar datos de usuario (sin contraseña)")
+@router.patch(
+    "/{user_id}", 
+    response_model=UserRead, 
+    status_code=status.HTTP_200_OK, 
+    summary="Actualizar datos de usuario (sin contraseña)",
+    # 🚨 PROTECCIÓN 5: Permiso para editar usuarios
+    dependencies=[Depends(check_permission(ADMIN_USER_PATH))] 
+)
 def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
 
     try:
         user_db = session.get(User, user_id)
-        # No se valida 'user_db.deleted is True' aquí, pues se permite actualizar un usuario eliminado (ej. para cambiarle el status)
+        
         if not user_db:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User doesn't exist")
         
@@ -236,23 +257,18 @@ def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
         if "password" in user_data_dict:
             del user_data_dict["password"] 
             
-        # 4. Manejar "undelete" (desactivación del soft delete)
-        # Si se envía 'deleted: False' y el usuario estaba eliminado:
-        # Este proceso se ha migrado al endpoint exclusivo de /restore para mayor claridad y seguridad.
-        # Si 'deleted' se actualiza a False, debe hacerse via /restore
+        # 4. Prevenir manipulación de la bandera 'deleted'
         if "deleted" in user_data_dict:
              if user_data_dict["deleted"] == False and user_db.deleted == True:
                  raise HTTPException(
                      status_code=status.HTTP_400_BAD_REQUEST, 
                      detail="Restoration must be done using the /restore endpoint."
                  )
-             # Si se intenta eliminar (deleted: True) via PATCH, se redirige a DELETE
              if user_data_dict["deleted"] == True and user_db.deleted == False:
                  raise HTTPException(
                      status_code=status.HTTP_400_BAD_REQUEST, 
                      detail="Soft deletion must be done using the DELETE /{user_id} endpoint."
                  )
-             # Eliminar 'deleted' del diccionario de actualización para evitar cambios no intencionales.
              del user_data_dict["deleted"] 
 
 
@@ -276,14 +292,23 @@ def update_user( user_id: int, user_data: UserUpdate, session: SessionDep):
 # ENDPOINT 6: ACTUALIZAR CONTRASEÑA (PATCH /users/{user_id}/password)
 # ----------------------------------------------------------------------
 
-@router.patch("/{user_id}/password", response_model=dict, status_code=status.HTTP_200_OK, summary="Actualizar solo la contraseña del usuario")
+@router.patch(
+    "/{user_id}/password", 
+    response_model=dict, 
+    status_code=status.HTTP_200_OK, 
+    summary="Actualizar solo la contraseña del usuario",
+    # 🚨 PROTECCIÓN 6: Permiso para cambiar la contraseña de otro usuario (Admin)
+    dependencies=[Depends(check_permission(ADMIN_USER_PATH))] 
+    # NOTA: Si quisiera permitir al usuario cambiar su propia contraseña, 
+    # se crearía otro endpoint GET /users/me/password con dependencia decode_token
+)
 def update_user_password(user_id: int, password_update: PasswordUpdate, session: SessionDep):
     try:
         user_db = session.get(User, user_id)
         if not user_db:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User doesn't exist")
         
-        # Opcional: Impedir cambio de contraseña si el usuario está eliminado.
+        # Impedir cambio de contraseña si el usuario está eliminado (por seguridad)
         if user_db.deleted is True:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot change password for a deleted user.")
         
@@ -323,7 +348,9 @@ def update_user_password(user_id: int, password_update: PasswordUpdate, session:
 @router.delete(
     "/{user_id}", 
     status_code=status.HTTP_204_NO_CONTENT, 
-    summary="Eliminación suave de un usuario (Soft Delete)"
+    summary="Eliminación suave de un usuario (Soft Delete)",
+    # 🚨 PROTECCIÓN 7: Permiso para eliminar usuarios
+    dependencies=[Depends(check_permission(ADMIN_USER_PATH))] 
 )
 def soft_delete_user(user_id: int, session: SessionDep):
     """
@@ -343,7 +370,6 @@ def soft_delete_user(user_id: int, session: SessionDep):
         current_time = datetime.utcnow()
 
         # 2. Implementar Soft Delete
-        # >>> CAMBIO CLAVE: Usar 'deleted_on'
         user_db.deleted = True # <-- Marcar como eliminado
         user_db.deleted_on = current_time 
         user_db.updated_at = current_time 
@@ -364,10 +390,16 @@ def soft_delete_user(user_id: int, session: SessionDep):
         )
         
 # ----------------------------------------------------------------------
-# ENDPOINT 8: RESTAURAR USUARIO (PATCH /users/{user_id}/restore) -> NUEVO
+# ENDPOINT 8: RESTAURAR USUARIO (PATCH /users/{user_id}/restore)
 # ----------------------------------------------------------------------
 
-@router.patch("/{user_id}/restore", response_model=UserRead, summary="Restaura un usuario previamente eliminado")
+@router.patch(
+    "/{user_id}/restore", 
+    response_model=UserRead, 
+    summary="Restaura un usuario previamente eliminado",
+    # 🚨 PROTECCIÓN 8: Permiso para restaurar usuarios
+    dependencies=[Depends(check_permission(ADMIN_USER_PATH))] 
+)
 def restore_deleted_user(user_id: int, session: SessionDep):
     """
     Restaura un usuario previamente eliminado (Soft Delete), 

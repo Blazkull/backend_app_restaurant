@@ -4,21 +4,27 @@ from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import List, Optional
 from starlette.responses import Response
+import os
+
 
 # Importa las dependencias del Core
 from core.database import SessionDep
-from core.security import decode_token 
+from core.security import decode_token, check_permission
 
-from models.tables import Table # Asume que ahora tiene 'deleted' y 'deleted_on'
+from models.tables import Table 
 from schemas.tables_schema import TableCreate, TableRead, TableUpdate 
 
-# Configuración del Router
+# Definimos el path de permiso para la administración de mesas:
+ADMIN_TABLES_PATH: str = os.getenv("ADMIN_USER_PATH")
+
+# Configuración del Router: Requiere autenticación global
 router = APIRouter(prefix="/api/tables", tags=["TABLES"], dependencies=[Depends(decode_token)]) 
 
 
 # ----------------------------------------------------------------------
 # ENDPOINT 1: LISTAR Y FILTRAR MESAS ACTIVAS (GET /tables)
 # ----------------------------------------------------------------------
+# NOTA: Solo requiere autenticación (decode_token)
 @router.get("", response_model=List[TableRead], summary="Listar y filtrar mesas activas con paginación")
 def list_tables(
     session: SessionDep,
@@ -30,7 +36,6 @@ def list_tables(
     Obtiene una lista de todas las mesas **activas** (deleted=False).
     """
     try:
-        # >>> CAMBIO 1: Filtra por 'deleted == False'
         query = select(Table).where(Table.deleted == False)
         
         # Filtrar por nombre
@@ -47,7 +52,7 @@ def list_tables(
                  status_code=status.HTTP_404_NOT_FOUND,
                  detail="No se encontraron más mesas activas en el rango de paginación."
              )
-            
+             
         return tables
         
     except HTTPException as http_exc:
@@ -61,7 +66,13 @@ def list_tables(
 # ----------------------------------------------------------------------
 # ENDPOINT 2: LISTAR MESAS ELIMINADAS (GET /tables/deleted)
 # ----------------------------------------------------------------------
-@router.get("/deleted", response_model=List[TableRead], summary="Listar mesas marcadas como eliminadas")
+@router.get(
+    "/deleted", 
+    response_model=List[TableRead], 
+    summary="Listar mesas marcadas como eliminadas",
+    # 🚨 PROTECCIÓN 1: Permiso para listar mesas eliminadas
+    dependencies=[Depends(check_permission(ADMIN_TABLES_PATH))] 
+)
 def read_deleted_tables(
     session: SessionDep,
     offset: int = Query(default=0, ge=0),
@@ -70,7 +81,6 @@ def read_deleted_tables(
     """
     Lista solo las mesas cuyo campo 'deleted' es True.
     """
-    # >>> CAMBIO 2: Filtra por 'deleted == True'
     query = select(Table).where(Table.deleted == True).offset(offset).limit(limit)
     tables = session.exec(query).all()
     
@@ -86,12 +96,11 @@ def read_deleted_tables(
 # ----------------------------------------------------------------------
 # ENDPOINT 3: OBTENER MESA POR ID (GET /tables/{table_id})
 # ----------------------------------------------------------------------
+# NOTA: Solo requiere autenticación (decode_token), no requiere permiso de administrador.
 @router.get("/{table_id}", response_model=TableRead, summary="Obtener una mesa por ID (excluye eliminadas)")
 def read_table(table_id: int, session: SessionDep):
     """Obtiene una mesa específica por su ID, excluyendo las eliminadas."""
     try:
-        # Usamos select y where para incluir la condición deleted=False
-        # >>> CAMBIO 3: Condición 'Table.deleted == False'
         statement = select(Table).where(Table.id == table_id, Table.deleted == False)
         table_db = session.exec(statement).first()
         
@@ -112,25 +121,32 @@ def read_table(table_id: int, session: SessionDep):
 # ----------------------------------------------------------------------
 # ENDPOINT 4: CREAR MESA (POST /tables)
 # ----------------------------------------------------------------------
-@router.post("", response_model=TableRead, status_code=status.HTTP_201_CREATED, summary="Crea una nueva mesa")
+@router.post(
+    "", 
+    response_model=TableRead, 
+    status_code=status.HTTP_201_CREATED, 
+    summary="Crea una nueva mesa",
+    # 🚨 PROTECCIÓN 2: Permiso para crear mesas
+    dependencies=[Depends(check_permission(ADMIN_TABLES_PATH))]
+)
 def create_table(table_data: TableCreate, session: SessionDep):
     """Crea una nueva mesa, validando que el nombre sea único entre las activas."""
     try:
+        # Validación de capacidad (si se proporciona)
+        capacity_table_max = 20 # Definición de la constante
+        if table_data.capacity > capacity_table_max or table_data.capacity <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail=f"La capacidad de la mesa debe ser un número positivo y no mayor a {capacity_table_max}."
+            )
+            
         # Validación de Unicidad por nombre (solo para registros activos)
-        # >>> CAMBIO 4: Filtra por 'deleted == False'
         existing_table = session.exec(
             select(Table)
             .where(Table.name == table_data.name)
             .where(Table.deleted == False)
         ).first()
-        # Validación de capacidad (si se proporciona)
-        if capacity_table_max := 20:
-            if table_data.capacity > capacity_table_max or table_data.capacity <= 0:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, 
-                    detail=f"La capacidad de la mesa debe ser un número positivo y no mayor a {capacity_table_max}."
-                )
-            
+        
         if existing_table:
             raise HTTPException(
                status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ya existe una mesa activa con el nombre/número: '{table_data.name}'." 
@@ -140,7 +156,6 @@ def create_table(table_data: TableCreate, session: SessionDep):
         table_db = Table.model_validate(table_data.model_dump())
         table_db.created_at = datetime.utcnow()
         table_db.updated_at = datetime.utcnow()
-        # 'deleted' y 'deleted_on' se establecen por defecto (False y None)
 
         session.add(table_db)
         session.commit()
@@ -160,22 +175,26 @@ def create_table(table_data: TableCreate, session: SessionDep):
 # ----------------------------------------------------------------------
 # ENDPOINT 5: ACTUALIZAR MESA (PATCH /tables/{table_id})
 # ----------------------------------------------------------------------
-@router.patch("/{table_id}", response_model=TableRead, summary="Actualiza campos de la mesa")
+@router.patch(
+    "/{table_id}", 
+    response_model=TableRead, 
+    summary="Actualiza campos de la mesa",
+    # 🚨 PROTECCIÓN 3: Permiso para actualizar mesas
+    dependencies=[Depends(check_permission(ADMIN_TABLES_PATH))]
+)
 def update_table(table_id: int, table_data: TableUpdate, session: SessionDep):
     """Actualiza campos de la mesa, manteniendo la unicidad del nombre."""
     try:
         table_db = session.get(Table, table_id)
 
-
-
         # Validación de capacidad (si se proporciona)
         if table_data.capacity is not None:
-            if capacity_table_max := 20:
-                if table_data.capacity > capacity_table_max or table_data.capacity <= 0:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST, 
-                        detail=f"La capacidad de la mesa debe ser un número positivo y no mayor a {capacity_table_max}."
-                    )
+            capacity_table_max = 20 # Definición de la constante
+            if table_data.capacity > capacity_table_max or table_data.capacity <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, 
+                    detail=f"La capacidad de la mesa debe ser un número positivo y no mayor a {capacity_table_max}."
+                )
         
         # Validación: La mesa debe existir y no estar eliminada
         if not table_db or table_db.deleted is True:
@@ -187,7 +206,6 @@ def update_table(table_id: int, table_data: TableUpdate, session: SessionDep):
         
         # Validación de unicidad si se intenta cambiar el nombre
         if "name" in data_to_update and data_to_update["name"] != table_db.name:
-            # >>> CAMBIO 6: Filtra por 'deleted == False'
             existing_table = session.exec(
                 select(Table)
                 .where(Table.name == data_to_update["name"])
@@ -212,6 +230,7 @@ def update_table(table_id: int, table_data: TableUpdate, session: SessionDep):
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
+        session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al actualizar la mesa: {str(e)}",
@@ -220,7 +239,14 @@ def update_table(table_id: int, table_data: TableUpdate, session: SessionDep):
 # ----------------------------------------------------------------------
 # ENDPOINT 6: ELIMINAR MESA (DELETE /tables/{table_id}) - SOFT DELETE
 # ----------------------------------------------------------------------
-@router.delete("/{table_id}", status_code=status.HTTP_200_OK, response_model=dict, summary="Realiza la eliminación suave de una mesa")
+@router.delete(
+    "/{table_id}", 
+    status_code=status.HTTP_200_OK, 
+    response_model=dict, 
+    summary="Realiza la eliminación suave de una mesa",
+    # 🚨 PROTECCIÓN 4: Permiso para eliminar mesas
+    dependencies=[Depends(check_permission(ADMIN_TABLES_PATH))]
+)
 def soft_delete_table(table_id: int, session: SessionDep):
     """Realiza la 'Eliminación Suave' de una mesa, marcando 'deleted=True', y devuelve un JSON de confirmación."""
     try:
@@ -258,7 +284,13 @@ def soft_delete_table(table_id: int, session: SessionDep):
 # ----------------------------------------------------------------------
 # ENDPOINT 7: RESTAURAR MESA (PATCH /tables/{table_id}/restore)
 # ----------------------------------------------------------------------
-@router.patch("/{table_id}/restore", response_model=TableRead, summary="Restaura una mesa previamente eliminada")
+@router.patch(
+    "/{table_id}/restore", 
+    response_model=TableRead, 
+    summary="Restaura una mesa previamente eliminada",
+    # 🚨 PROTECCIÓN 5: Permiso para restaurar mesas
+    dependencies=[Depends(check_permission(ADMIN_TABLES_PATH))]
+)
 def restore_deleted_table(table_id: int, session: SessionDep):
     """
     Restaura una mesa previamente eliminada (Soft Delete), 
@@ -297,7 +329,7 @@ def restore_deleted_table(table_id: int, session: SessionDep):
 
         # Restaurar la mesa
         table_db.deleted = False
-        table_db.deleted_on = None  # Limpia la marca de tiempo de eliminación
+        table_db.deleted_on = None 
         table_db.updated_at = current_time 
 
         session.add(table_db)
