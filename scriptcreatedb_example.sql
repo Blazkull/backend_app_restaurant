@@ -253,8 +253,6 @@ CREATE TABLE invoices (
     id_client INT, -- Se permite NULL si es venta anónima/público general
     id_order INT NOT NULL UNIQUE, -- Una orden solo se factura una vez
     id_payment_method INT NOT NULL,
-    -- Los campos returned y ammount_paid no son estrictamente necesarios en la BD para la lógica total, 
-    -- ya que pueden calcularse, pero se mantienen si los necesitas para la auditoría de caja.
     returned DECIMAL(10, 2), -- Puede ser nulo o 0
     ammount_paid DECIMAL(10, 2) NOT NULL, 
     total DECIMAL(10, 2) NOT NULL,

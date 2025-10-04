@@ -43,7 +43,7 @@ class MenuItemRead(MenuItemBase):
 
     # Relaciones para mostrar en la respuesta
     category: Optional[CategoryReadForMenuItem] = None
-    status_rel: Optional[StatusReadForMenuItem] = None # 'status_rel' coincide con el nombre en el modelo
+    status: Optional[StatusReadForMenuItem] = None 
     
     # Campo adicional para enviar la URL completa de la imagen al frontend
     image_url: Optional[str] = None 
@@ -58,3 +58,4 @@ class MenuItemListResponse(SQLModel):
     page: int
     page_size: int
     total_pages: int
+
