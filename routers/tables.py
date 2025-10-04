@@ -314,3 +314,55 @@ def restore_deleted_table(table_id: int, session: SessionDep):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al restaurar la mesa: {str(e)}",
         )
+
+# ----------------------------------------------------------------------
+# ENDPOINT 8: CAMBIAR SOLO EL ESTADO DE LA MESA (PATCH /tables/{table_id}/status)
+# ----------------------------------------------------------------------
+
+# Asegúrate de importar el nuevo schema
+from schemas.tables_schema import TableStatusUpdate # o desde el archivo que lo hayas definido
+
+@router.patch(
+    "/{table_id}/status", 
+    response_model=TableRead, 
+    summary="Actualiza únicamente el ID del estado de la mesa"
+)
+def update_table_status(
+    table_id: int, 
+    table_status: TableStatusUpdate, 
+    session: SessionDep
+):
+    """
+    Cambia el estado (id_status) de una mesa activa por su ID.
+    """
+    try:
+        table_db = session.get(Table, table_id)
+
+        # Validación: La mesa debe existir y no estar eliminada
+        if not table_db or table_db.deleted is True:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Mesa no encontrada o eliminada."
+            )
+
+        # Si el nuevo ID es el mismo que el actual, no hacemos nada y devolvemos la mesa
+        if table_db.id_status == table_status.id_status:
+            return table_db
+        
+        # Aplicar actualización y actualizar timestamp
+        table_db.id_status = table_status.id_status
+        table_db.updated_at = datetime.utcnow()
+        
+        session.add(table_db)
+        session.commit()
+        session.refresh(table_db)
+        
+        return table_db
+    
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al actualizar el estado de la mesa: {str(e)}",
+        )

@@ -365,3 +365,22 @@ INSERT INTO categories (name, description) VALUES
 -- 17. Información de la Empresa 
 INSERT INTO information_company (name, address, location, identification_number, email) VALUES
 ('Restaurante La Media Luna', 'Calle 123 #45-67', 'Barranquilla, Atlantico', '900123456-7','admin@lamedialuna.com');
+
+INSERT INTO menu_items (name, id_category, ingredients, estimated_time, price, id_status, image) VALUES
+-- 1. APERITIVOS (id_category = 6)
+('Nachos Supremes', 6, 'Totopos de maíz, queso cheddar fundido, carne molida, frijoles refritos, pico de gallo, crema agria y jalapeños.', 15, 9.99, 1, 'nachos_supremes.jpg'),
+('Aros de Cebolla Gourmet', 6, 'Cebolla blanca en rodajas gruesas, rebozado crujiente de cerveza, salsa ranch de la casa.', 10, 6.50, 1, 'aros_cebolla.jpg'),
+
+-- 2. PLATOS FUERTES (id_category = 1)
+('Hamburguesa Clásica Especial', 1, 'Doble carne de res (200g), queso cheddar, tocino, lechuga, tomate, cebolla caramelizada, salsa BBQ, pan brioche.', 20, 14.75, 2, 'hamburguesa_especial.jpg'),
+('Salmón a la Plancha con Asparagus',1, 'Filete de salmón (180g) a la plancha, espárragos salteados, reducción de balsámico y limón.', 25, 21.90, 1, 'salmon_asparagus.jpg'),
+('Pizza Margarita Artesanal', 1, 'Masa fermentada, salsa de tomate San Marzano, mozzarella fresca, albahaca y aceite de oliva virgen extra.', 18, 12.00, 1, 'pizza_margarita.jpg'),
+('Curry de Garbanzos y Verduras', 1, 'Garbanzos, espinacas, pimientos, cebolla en salsa curry cremosa de coco, servido con arroz basmati.', 20, 15.50, 1, 'curry_garbanzos.jpg'),
+('Pasta Alfredo con Camarones', 1, 'Fettuccine en salsa cremosa Alfredo con camarones jumbo y un toque de ajo y perejil.', 22, 18.25, 3, 'pasta_camarones.jpg'),
+
+-- 3. POSTRES (id_category = 4)
+('Volcán de Chocolate con Helado', 4, 'Bizcocho de chocolate con centro líquido, servido con helado de vainilla y coulis de frambuesa.', 12, 7.50, 1, 'volcan_chocolate.jpg'),
+('Tiramisú Clásico', 4, 'Capas de bizcocho de soletilla empapadas en café, crema de mascarpone y cacao en polvo.', 5, 6.95, 1, 'tiramisu_clasico.jpg'),
+
+-- 4. BEBIDAS (id_category = 3)
+('Limonada de Menta Refrescante', 3, 'Jugo de limón natural, agua, azúcar, hojas de menta fresca.', 5, 3.50, 1, 'limonada_menta.jpg');

@@ -17,6 +17,10 @@ class TableUpdate(SQLModel):
     capacity: Optional[int] = None
     id_status: Optional[int] = None
 
+class TableStatusUpdate(SQLModel):
+    """Schema para actualizar únicamente el ID del estado de la mesa."""
+    id_status: int = Field(..., description="El nuevo ID del estado de la mesa.")
+
 class TableRead(TableBase):
     id: int
     created_at: datetime
