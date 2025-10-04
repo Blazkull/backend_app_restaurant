@@ -164,7 +164,7 @@ def soft_delete_location(location_id: int, session: SessionDep):
         
         # 2. Validación de estado (si ya está eliminada)
         if location_db.deleted is True:
-            return {"message": f"La Ubicación (ID: {location_id}) ya estaba marcada como eliminada."}
+            return {"message": f"La Ubicación {location_db.name} (ID: {location_id}) ya estaba marcada como eliminada."}
 
         current_time = datetime.utcnow()
 
@@ -176,7 +176,7 @@ def soft_delete_location(location_id: int, session: SessionDep):
         session.add(location_db)
         session.commit()
 
-        return {"message": f"Ubicación (ID: {location_id}) eliminada (Soft Delete) exitosamente el {current_time.isoformat()}."}
+        return {"message": f"Ubicación: {location_db.name} (ID: {location_id}) eliminada (Soft Delete) exitosamente el {current_time.isoformat()}."}
     
     except HTTPException as http_exc:
         raise http_exc

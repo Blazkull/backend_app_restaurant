@@ -6,7 +6,7 @@ class TypeIdentification(SQLModel, table=True):
     __tablename__ = "type_identification"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    type_identificaction: Optional[str] = Field(default=None, max_length=20)
+    type_identification: Optional[str] = Field(default=None, max_length=20)
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)

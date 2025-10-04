@@ -9,7 +9,7 @@ USE db_restraurante_la_media_luna;
 -- 1. Tipo de Identificación
 CREATE TABLE type_identification(
     id INT PRIMARY KEY AUTO_INCREMENT,
-    type_identificaction VARCHAR(20) NOT NULL UNIQUE, -- Se agrega UNIQUE
+    type_identification VARCHAR(20) NOT NULL UNIQUE, -- Se agrega UNIQUE
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted BOOLEAN DEFAULT FALSE,
@@ -61,7 +61,6 @@ CREATE TABLE users (
     username VARCHAR(50) UNIQUE NOT NULL,
     password VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
-    -- CORRECCIÓN CLAVE: El rol principal debe referenciar la tabla 'roles'
     id_role INT, 
     id_status INT NOT NULL,
     active BOOLEAN DEFAULT TRUE, -- Campo útil para FastAPI/Autenticación (adicional al soft delete)
@@ -87,7 +86,8 @@ CREATE TABLE tokens (
 -- 7. Vistas (Recursos de Permisos)
 CREATE TABLE views (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    name VARCHAR(100) NOT NULL UNIQUE, -- Se agrega UNIQUE
+    name VARCHAR(100) NOT NULL UNIQUE, 
+    path VARCHAR(100) NOT NULL UNIQUE, 
     id_status INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -107,7 +107,7 @@ CREATE TABLE user_role_link (
     FOREIGN KEY (id_role) REFERENCES roles(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
--- 9. Enlace Rol-Vistas (Permisos M:N) - CAMBIO DE NOMBRE A 'role_view_link'
+-- 9. Enlace role_view_link (Permisos M:N) 
 CREATE TABLE role_view_link ( 
     id_role INT,
     id_view INT,
@@ -268,3 +268,100 @@ CREATE TABLE invoices (
     FOREIGN KEY (id_payment_method) REFERENCES payment_method(id) ON UPDATE CASCADE,
     FOREIGN KEY (id_status) REFERENCES status(id) ON UPDATE CASCADE
 );
+
+
+-- =========================================================
+-- Inserción de Datos Iniciales (Seeders)
+-- =========================================================
+
+-- Asumiendo que esta es la primera ejecución:
+
+-- 1. Tipo de Identificación (Necesario para 'clients')
+INSERT INTO type_identification (type_identification) VALUES
+('Cédula Ciudadanía'),
+('Cédula Extranjería'),
+('Pasaporte'),
+('NIT');
+
+-- 2. Status/Estado (Necesario para casi todas las tablas)
+INSERT INTO status (name, description) VALUES
+('Activo', 'Registro activo y en uso'),
+('Inactivo', 'Registro inactivo o deshabilitado'),
+('Pendiente', 'Registro en espera de alguna acción'),
+('Ocupada', 'Mesa ocupada'),
+('Disponible', 'Mesa disponible'),
+('Preparación', 'Pedido en cocina'),
+('Entregado', 'Pedido entregado'),
+('Pagada', 'Factura pagada'),
+('Cancelada', 'Factura cancelada');
+
+
+-- 3. Métodos de Pago (Necesario para 'invoices')
+INSERT INTO payment_method (name) VALUES
+('Efectivo'),
+('Tarjeta Crédito/Débito'),
+('Transferencia');
+
+
+-- 4. Roles (Asumiendo id_status = 1 para 'Activo')
+INSERT INTO roles (name, id_status) VALUES
+('Administrador', 1),
+('Mesero', 1),
+('Jefe de Cocina', 1),
+('Cajero', 1);
+
+
+-- 5. Usuarios (Asumiendo id_role = 1 para 'Administrador' y id_status = 1 para 'Activo')
+-- NOTA: La contraseña '$2a$12$GByghX4O968/l61.1zzJiO2a/qgXCms75GZITCb1.6mIjT6BeUEnK' corresponde a 'admin'
+INSERT INTO users (name, username, password, email, id_role, id_status, active) VALUES
+('Jhon Acosta Acosta', 'admin', '$2a$12$GByghX4O968/l61.1zzJiO2a/qgXCms75GZITCb1.6mIjT6BeUEnK', 'admin@gmail.com', 1, 1, TRUE);
+
+
+-- 7. Vistas (Recursos de Permisos) - ACTUALIZADO con la columna 'path' y NUEVOS REGISTROS
+-- Asignación de paths a los registros existentes:
+INSERT INTO views (name, path, id_status) VALUES
+('Dashboard', '/api/dashboard/admin', 1),
+('Pedidos', '/api/orders/admin', 1),
+('Menú', '/api/menu_items/admin', 1),
+('Mesas', '/api/tables/admin', 1),
+('Clientes', '/api/clients/admin', 1),
+('Usuarios', '/api/users/admin', 1),
+('Reportes', '/api/reports/admin', 1),
+('Roles', '/api/roles/admin', 1),
+('Vistas', '/api/views/admin', 1),
+('Estados', '/api/status/admin', 1),
+('Categorías', '/api/categories/admin', 1),
+('Información de Empresa', '/api/info/admin', 1),
+('Facturas', '/api/invoices/admin', 1),
+('Órdenes de Cocina', '/api/kitchen_orders/admin', 1),
+('Ubicaciones', '/api/locations/admin', 1),
+('Ítems de Pedido', '/api/order_items/admin', 1),
+('Pagos', '/api/payments/admin', 1),
+('Tipos de Identificación', '/api/type_identifications/admin', 1);
+
+-- 9. Enlace Rol-Vistas (Permisos M:N) - Asignación de TODOS los recursos al rol Administrador
+-- NOTA: Se asume que el Administrador (id_role=1) tiene acceso a TODOS los 18 recursos.
+INSERT INTO role_view_link (id_role, id_view, enabled) VALUES
+(1, 1, TRUE), (1, 2, TRUE), (1, 3, TRUE), (1, 4, TRUE), (1, 5, TRUE), (1, 6, TRUE), (1, 7, TRUE), (1, 8, TRUE),
+(1, 9, TRUE), (1, 10, TRUE), (1, 11, TRUE), (1, 12, TRUE), (1, 13, TRUE), (1, 14, TRUE), (1, 15, TRUE), (1, 16, TRUE),
+(1, 17, TRUE), (1, 18, TRUE);
+
+
+-- 11. Ubicaciones (Necesario para 'tables')
+INSERT INTO locations (name, description) VALUES
+('Salón Principal', 'Zona de mesas cerca de la entrada'),
+('Terraza', 'Zona al aire libre'),
+('Barra', 'Asientos en la barra');
+
+
+-- 13. Categorías (Necesario para 'menu_items')
+INSERT INTO categories (name, description) VALUES
+('Platos Fuertes', 'Comidas principales'),
+('Entradas', 'Aperitivos y sopas'),
+('Bebidas', 'Jugos, gaseosas, y licores'),
+('Postres', 'Dulces y cafés');
+
+
+-- 17. Información de la Empresa 
+INSERT INTO information_company (name, address, location, identification_number, email) VALUES
+('Restaurante La Media Luna', 'Calle 123 #45-67', 'Barranquilla, Atlantico', '900123456-7','admin@lamedialuna.com');

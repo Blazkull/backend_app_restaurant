@@ -56,7 +56,7 @@ def read_type_identification(type_id: int, session: SessionDep):
 
 # --- RUTA PARA CREACIÓN (POST) ---
 
-@router.post("", response_model=TypeIdentificationRead, status_code=status.HTTP_201_CREATED) # Ruta: /api/type_identification
+@router.post("/", response_model=TypeIdentificationRead, status_code=status.HTTP_201_CREATED) # Ruta: /api/type_identification
 def create_type_identification(type_data: TypeIdentificationCreate, session: SessionDep):
     """Crea un nuevo tipo de identificación, validando que el nombre sea único entre los activos."""
     try:
@@ -166,7 +166,7 @@ def soft_delete_type_identification(type_id: int, session: SessionDep):
         session.add(type_db)
         session.commit()
         
-        return {"message": f"Tipo de Identificación (ID: {type_id}) eliminado (Soft Delete) exitosamente el {current_time.isoformat()}."}
+        return {"message": f"Tipo de Identificación: {type_db.type_identification} (ID: {type_id}) eliminado (Soft Delete) exitosamente el {current_time.isoformat()}."}
     
     except HTTPException as http_exc:
         raise http_exc
