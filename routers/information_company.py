@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlmodel import select
 from datetime import datetime
-from typing import List
+from typing import List, Optional, Dict, Any
 
 # Importa dependencias del Core
 from core.database import SessionDep
@@ -66,7 +66,14 @@ def create_company_info(company_data: InformationCompanyCreate, session: Session
         )
 
     try:
-        # 2. Creación
+        # 2. Validación de unicidad de email (aunque el modelo lo hace, es mejor ser explícito)
+        if company_data.email:
+            existing_email = session.exec(select(InformationCompany).where(InformationCompany.email == company_data.email)).first()
+            if existing_email:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El correo electrónico ya está registrado.")
+
+
+        # 3. Creación del registro
         company_db = InformationCompany.model_validate(company_data.model_dump())
         company_db.created_at = datetime.utcnow()
         company_db.updated_at = datetime.utcnow()
@@ -77,6 +84,8 @@ def create_company_info(company_data: InformationCompanyCreate, session: Session
         
         return company_db
 
+    except HTTPException as http_exc:
+        raise http_exc
     except Exception as e:
         session.rollback() 
         raise HTTPException(
@@ -99,6 +108,15 @@ def update_company_info(company_data: InformationCompanyUpdate, session: Session
         # 2. Aplicar actualización
         data_to_update = company_data.model_dump(exclude_unset=True)
         
+        # Validación de unicidad para email si se está actualizando
+        if "email" in data_to_update and data_to_update["email"] != company_db.email:
+            existing_email = session.exec(
+                select(InformationCompany).where(InformationCompany.email == data_to_update["email"])
+            ).first()
+            # Si se encuentra un registro con el mismo email Y no es el registro actual (aunque solo debe haber uno)
+            if existing_email and existing_email.id != company_db.id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El correo electrónico ya está registrado por otra compañía.")
+            
         company_db.sqlmodel_update(data_to_update)
         company_db.updated_at = datetime.utcnow()
         
