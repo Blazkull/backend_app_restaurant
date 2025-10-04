@@ -1,5 +1,6 @@
+from pydantic import BaseModel
 from sqlmodel import SQLModel, Field
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 
 class PaymentMethodBase(SQLModel):
@@ -20,3 +21,10 @@ class PaymentMethodRead(PaymentMethodBase):
     
     class Config:
         from_attributes = True
+
+class PaymentMethodListResponse(BaseModel):
+    items: List[PaymentMethodRead]
+    total_items: int
+    page: int
+    page_size: int
+    total_pages: int
