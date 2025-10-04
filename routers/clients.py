@@ -1,14 +1,12 @@
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status, HTTPException, Query
 from sqlmodel import select
 from datetime import datetime
-from typing import List
+from typing import List, Optional, Dict, Any 
 
 # Importa las dependencias del Core
 from core.database import SessionDep
 from core.security import decode_token 
 
-# Importa el modelo y los schemas actualizados
-# Asegúrate de que Client tiene los campos 'deleted' y 'deleted_on'
 from models.clients import Client 
 from schemas.clients_schema import ClientCreate, ClientRead, ClientUpdate 
 
@@ -16,26 +14,87 @@ from schemas.clients_schema import ClientCreate, ClientRead, ClientUpdate
 router = APIRouter(
     prefix="/api/clients", 
     tags=["CLIENTS"], 
-    dependencies=[Depends(decode_token)] # Autenticación global
+    dependencies=[Depends(decode_token)] 
 ) 
 
 
-# 1. Obtener lista de clientes (GET)
-@router.get("", response_model=List[ClientRead])
-def list_clients(session: SessionDep):
+# 1. Obtener lista de clientes (GET) - CORREGIDO Y OPTIMIZADO
+@router.get("",
+            response_model=Dict[str, Any], # CORREGIDO: Retorna diccionario con data y metadata
+            summary="Listar y filtrar clientes con paginación"
+            )
+def list_clients(
+    session: SessionDep,
+    
+    # Paginación
+    offset: int = Query(default=0, ge=0, description="Número de registros a omitir (offset)."),
+    limit: int = Query(default=10, le=100, description="Máxima cantidad de clientes a retornar (limit)."),
+    
+    # Filtro de Estado
+    deleted_filter: Optional[bool] = Query(default=False, alias="deleted", description="Filtra por clientes eliminados (True). Por defecto, solo activos (False)."),
+    
+    # Búsqueda/Filtro
+    name_search: Optional[str] = Query(default=None, description="Buscar por nombre de cliente (parcialmente)."),
+
+    # Busqueda por numero de identificación
+    identification_search: Optional[str] = Query(default=None, description="Buscar por número de identificación (parcialmente)."),
+
+    #Busqueda por correo electrónico
+    email_search: Optional[str] = Query(default=None, description="Buscar por correo electrónico (parcialmente)."),
+    
+    #Busqueda por número telefónico
+    phone_search: Optional[str] = Query(default=None, description="Buscar por número telefónico (parcialmente)."),
+    
+):
     """
-    Obtiene una lista de todos los clientes **activos** (deleted=False).
+    Obtiene una lista paginada y filtrada de clientes, incluyendo el conteo total de registros.
     """
     try:
-        # Filtra por clientes donde deleted es False
-        statement = select(Client).where(Client.deleted == False)
-        clients = session.exec(statement).all()
-        return clients
+        # 1. INICIALIZAR LA CONSULTA BASE
+        query = select(Client) 
+        
+        # 2. APLICAR FILTRO DE ESTADO
+        if deleted_filter is not None:
+            query = query.where(Client.deleted == deleted_filter)
+        
+        # 3. APLICAR FILTROS DE BÚSQUEDA
+        if name_search:
+            # NOTA: Se corrige a 'Client.name' asumiendo que es el campo correcto.
+            query = query.where(Client.fullname.ilike(f"%{name_search}%")) 
+        
+        if identification_search:
+            query = query.where(Client.identification_number.ilike(f"%{identification_search}%"))
+        
+        if email_search:
+            query = query.where(Client.email.ilike(f"%{email_search}%"))
+        
+        if phone_search:
+            query = query.where(Client.phone_number.ilike(f"%{phone_search}%"))
+        
+        # 4. OBTENER CONTEO TOTAL (antes de la paginación)
+        # Se obtiene todos los IDs/Objetos para el conteo después de filtrar.
+        total_count = len(session.exec(query).all())
+        
+        # 5. APLICAR PAGINACIÓN
+        final_statement = query.limit(limit).offset(offset)
+        clients = session.exec(final_statement).all()
+        
+        # 6. RETORNAR RESULTADO CON METADATA
+        return {
+            "data": clients,
+            "metadata": {
+                "total_count": total_count,
+                "limit": limit,
+                "offset": offset
+            }
+        }
+    
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al listar los clientes: {str(e)}",
         )
+
 
 # 2. Obtener un cliente en particular (GET)
 @router.get("/{client_id}", response_model=ClientRead)
@@ -70,13 +129,15 @@ def create_client(client_data: ClientCreate, session: SessionDep):
                 select(Client).where(field == value).where(Client.deleted == False)
             ).first()
             if existing:
-                # El 'field.name' proporciona el nombre de la columna para el error
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"El {field.name} ya existe para un cliente activo.")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"El {client_data.fullname} ya existe para un cliente activo.")
 
         # Verificar unicidad de campos
-        check_uniqueness(Client.phone_number, client_data.phone_number)
-        check_uniqueness(Client.identification_number, client_data.identification_number)
-        check_uniqueness(Client.email, client_data.email)
+        if client_data.phone_number:
+            check_uniqueness(Client.phone_number, client_data.phone_number)
+        if client_data.identification_number:
+            check_uniqueness(Client.identification_number, client_data.identification_number)
+        if client_data.email:
+            check_uniqueness(Client.email, client_data.email)
         
         # Crear el objeto (deleted=False y deleted_on=None por defecto en el modelo)
         client_db = Client.model_validate(client_data.model_dump())
@@ -121,7 +182,7 @@ def update_client(client_id: int, client_data: ClientUpdate, session: SessionDep
             ).first()
             # Si se encuentra un registro con el mismo valor Y no es el cliente actual
             if existing and existing.id != client_id:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"El {field.name} ya existe para otro cliente activo.")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"El {client_data.fullname} ya existe para otro cliente activo.")
 
         if "phone_number" in data_to_update and data_to_update["phone_number"] != client_db.phone_number:
             check_update_uniqueness(Client.phone_number, data_to_update["phone_number"])
@@ -177,7 +238,7 @@ def soft_delete_client(client_id: int, session: SessionDep):
         session.add(client_db)
         session.commit()
 
-        return {"message": f"Cliente (ID: {client_id}) eliminado (Soft Delete) exitosamente el {current_time.isoformat()}."}
+        return {"message": f"Cliente {client_db.fullname} (ID: {client_id}) eliminado (Soft Delete) exitosamente el {current_time.isoformat()}."}
     
     except HTTPException as http_exc:
         raise http_exc
@@ -213,8 +274,6 @@ def restore_deleted_client(client_id: int, session: SessionDep):
             )
 
         # Antes de restaurar, verifica unicidad para evitar colisiones con clientes activos.
-        # Esto es clave si la identificación o email de este cliente eliminado
-        # ha sido tomada por otro cliente activo.
         
         def check_restore_uniqueness(field, value):
             existing = session.exec(
@@ -222,7 +281,7 @@ def restore_deleted_client(client_id: int, session: SessionDep):
             ).first()
             if existing:
                 # Si existe un cliente activo con el mismo valor, la restauración falla
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Conflicto: No se puede restaurar. El {field.name} '{value}' ya está en uso por otro cliente activo (ID: {existing.id}).")
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Conflicto: No se puede restaurar. El {client_db.fullname} '{value}' ya está en uso por otro cliente activo (ID: {existing.id}).")
 
         check_restore_uniqueness(Client.phone_number, client_db.phone_number)
         check_restore_uniqueness(Client.identification_number, client_db.identification_number)

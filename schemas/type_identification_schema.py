@@ -3,7 +3,6 @@ from typing import Optional
 from datetime import datetime
 
 class TypeIdentificationBase(SQLModel):
-    # NOTA: Se corrige 'type_identificaction' a 'type_identification' por convención
     type_identification: Optional[str] = Field(default=None, max_length=20)
 
 class TypeIdentificationCreate(TypeIdentificationBase):

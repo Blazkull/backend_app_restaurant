@@ -54,10 +54,6 @@ def read_users(
     Lista usuarios permitiendo filtros y paginación, **excluyendo a los usuarios con deleted=True por defecto**.
     """
     
-    # Opcional: Agregar aquí validación de permisos (ej. solo el rol 'Administrador' puede listar)
-    # if current_user.role.name != "Administrador":
-    #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para listar usuarios.")
-    
     query = select(User)
     
     # --- EXCLUSIÓN CLAVE: Excluir usuarios eliminados (deleted=False) ---
