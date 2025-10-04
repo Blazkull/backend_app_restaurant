@@ -14,7 +14,7 @@ from models.status import Status
 from schemas.orders_schema import OrderRead, OrderKitchenUpdate # 💡 OrderKitchenUpdate
 
 
-router = APIRouter(prefix="/api/kitchen", tags=["Panel de Cocina"] , dependencies=[Depends(decode_token)])
+router = APIRouter(prefix="/api/kitchen", tags=["kitchen panel"] , dependencies=[Depends(decode_token)])
 
 
 # ======================================================================

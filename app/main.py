@@ -23,6 +23,7 @@ from routers import login
 from routers import auth  
 from routers import users 
 from routers import roles 
+from routers import view
 from routers import information_company
 from routers import categories
 from routers import clients
@@ -92,6 +93,7 @@ app.include_router(login.router)
 app.include_router(auth.router)
 app.include_router(users.router) 
 app.include_router(roles.router) 
+app.include_router(view.router)
 app.include_router(information_company.router)
 app.include_router(categories.router)
 app.include_router(clients.router)

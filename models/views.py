@@ -11,6 +11,7 @@ class View(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=100, nullable=False)
     id_status: Optional[int] = Field(default=None, foreign_key="status.id")
+    path: str = Field(max_length=150, nullable=False, unique=True, index=True)
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)

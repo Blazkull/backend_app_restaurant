@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status, HTTPException, Query
 from sqlmodel import select
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from starlette.responses import Response
 
 # Importa dependencias y modelos
@@ -9,7 +9,7 @@ from core.database import SessionDep
 from core.security import decode_token 
 from models.roles import Role 
 from models.views import View
-from models.link_models import RoleViewLink # <-- USANDO EL MODELO DE ENLACE
+from models.link_models import RoleViewLink
 from schemas.roles_schema import RoleCreate, RoleRead, RoleUpdate
 from schemas.role_view_link_schema import RoleViewUpdateStatus
 
@@ -20,15 +20,51 @@ router = APIRouter(
 ) 
 
 # ----------------------------------------------------------------------
-# ENDPOINT 1: LISTAR ROLES ACTIVOS (GET /roles)
+# ENDPOINT 1: LISTAR Y FILTRAR ROLES (GET /roles)
 # ----------------------------------------------------------------------
 
-@router.get("", response_model=List[RoleRead], summary="Listar roles activos")
-def list_roles(session: SessionDep):
-    """Obtiene una lista de todos los roles activos (deleted=False)."""
+@router.get("", response_model=List[RoleRead], summary="Listar y filtrar roles (activos o eliminados) con paginación")
+def list_roles(
+    session: SessionDep,
+    
+    # Paginación
+    offset: int = Query(default=0, ge=0, description="Número de registros a omitir (offset)."),
+    limit: int = Query(default=10, le=100, description="Máxima cantidad de roles a retornar (limit)."),
+    
+    # Filtro de Estado
+    is_deleted: Optional[bool] = Query(default=False, alias="deleted", description="Filtra por roles eliminados (True) o activos (False)."),
+    
+    # Búsqueda/Filtro
+    name_search: Optional[str] = Query(default=None, description="Buscar por nombre de rol (parcialmente)."),
+):
+    """
+    Obtiene una lista de roles, permitiendo filtrar por estado de eliminación, 
+    búsqueda por nombre y paginación.
+    """
     try:
-        statement = select(Role).where(Role.deleted == False)
-        return session.exec(statement).all()
+        # 1. Base del query: filtrar por el estado de eliminación (is_deleted)
+        statement = select(Role).where(Role.deleted == is_deleted)
+        
+        # 2. Filtro por nombre (búsqueda parcial insensible a mayúsculas/minúsculas)
+        if name_search:
+            # Aseguramos que la búsqueda por nombre solo se ejecute si name_search no es None
+            statement = statement.where(Role.name.ilike(f"%{name_search}%"))
+            
+        # 3. Aplicar paginación
+        statement = statement.offset(offset).limit(limit)
+        
+        roles = session.exec(statement).all()
+        
+        if not roles and (offset > 0 or name_search):
+             raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No se encontraron roles que coincidan con los criterios de búsqueda o paginación."
+            )
+            
+        return roles
+        
+    except HTTPException as http_exc:
+        raise http_exc
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al listar roles: {str(e)}")
 
@@ -123,7 +159,12 @@ def update_role(role_id: int, role_data: RoleUpdate, session: SessionDep):
 # ENDPOINT 4: ELIMINAR ROL (DELETE /roles/{role_id}) - SOFT DELETE
 # ----------------------------------------------------------------------
 
-@router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Realiza la eliminación suave de un rol")
+@router.delete(
+    "/{role_id}", 
+    status_code=status.HTTP_200_OK, # CAMBIO: De 204 a 200
+    response_model=dict, # CAMBIO: Para devolver el mensaje JSON
+    summary="Realiza la eliminación suave de un rol"
+)
 def soft_delete_role(role_id: int, session: SessionDep):
     """Realiza la 'Eliminación Suave' de un rol, marcando 'deleted=True' y 'deleted_on'."""
     try:
@@ -132,19 +173,26 @@ def soft_delete_role(role_id: int, session: SessionDep):
         if not role_db:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rol no encontrado.")
         
-        if role_db.deleted is True:
-            return Response(status_code=status.HTTP_204_NO_CONTENT)
-
         current_time = datetime.utcnow()
+        role_name = role_db.name # Guardamos el nombre antes de la posible eliminación
 
-        # Aplicar Soft Delete
+        # 1. Si ya está eliminado, retorna éxito con el mensaje (opcionalmente)
+        if role_db.deleted is True:
+            return {
+                "message": f"El rol '{role_name}' ya estaba marcado como eliminado el {role_db.deleted_on.isoformat()}."
+            }
+
+        # 2. Aplicar Soft Delete
         role_db.deleted = True
         role_db.deleted_on = current_time
         role_db.updated_at = current_time
         session.add(role_db)
         session.commit()
         
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        # 3. Retornar éxito con status 200 y el mensaje deseado
+        return {
+            "message": f"El rol '{role_name}' ha sido eliminado exitosamente (soft delete) el {current_time.isoformat()}."
+        }
     
     except HTTPException as http_exc:
         raise http_exc
@@ -153,7 +201,52 @@ def soft_delete_role(role_id: int, session: SessionDep):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al eliminar el rol: {str(e)}")
 
 # ----------------------------------------------------------------------
-# ENDPOINT 5: ACTUALIZAR PERMISOS POR ROL (PATCH /roles/{role_id}/permissions)
+# ENDPOINT 5: RESTAURAR ROL (PATCH /roles/{role_id}/restore)
+# ----------------------------------------------------------------------
+
+@router.patch("/{role_id}/restore", response_model=RoleRead, summary="Restaura un rol previamente eliminado")
+def restore_role(role_id: int, session: SessionDep):
+    """Restaura un rol previamente eliminado (Soft Delete), cambiando 'deleted' a False y limpiando 'deleted_on'."""
+    try:
+        role_db = session.get(Role, role_id)
+
+        if not role_db:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Rol no encontrado."
+            )
+        
+        if role_db.deleted is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="El rol no está eliminado y no puede ser restaurado."
+            )
+
+        current_time = datetime.utcnow()
+
+        # Restaurar el rol
+        role_db.deleted = False
+        role_db.deleted_on = None 
+        role_db.updated_at = current_time 
+
+        session.add(role_db)
+        session.commit()
+        session.refresh(role_db)
+
+        return role_db
+    
+    except HTTPException as http_exc:
+        session.rollback()
+        raise http_exc
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al restaurar el rol: {str(e)}",
+        )
+
+# ----------------------------------------------------------------------
+# ENDPOINT 6: ACTUALIZAR PERMISOS POR ROL (PATCH /roles/{role_id}/permissions)
 # ----------------------------------------------------------------------
 
 @router.patch("/{role_id}/permissions", response_model=List[RoleViewUpdateStatus], summary="Actualiza el estado de los permisos (habilitado/deshabilitado) para un rol específico")
