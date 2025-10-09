@@ -10,6 +10,8 @@ class Order(SQLModel, table=True):
     # Claves Foráneas
     id_table: int = Field(foreign_key="tables.id")
     id_status: int = Field(foreign_key="status.id")
+    id_user_created: int = Field(foreign_key="users.id")
+    total_value: float = Field(gt=0, description="Valor total del pedido")
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
@@ -17,9 +19,11 @@ class Order(SQLModel, table=True):
     deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
 
     # Relaciones
+    user_created: "User" = Relationship(back_populates="orders")
     table: "Table" = Relationship(back_populates="orders")
     status: "Status" = Relationship(back_populates="orders")
-    order_items: List["OrderItem"] = Relationship(back_populates="order")
+    items: List["OrderItem"] = Relationship(back_populates="order")
+    kitchen_tickets: List["KitchenTicket"] = Relationship(back_populates="order")
     invoice: Optional["Invoice"] = Relationship(back_populates="order")
 
 
@@ -30,3 +34,5 @@ if TYPE_CHECKING:
     from models.status import Status
     from models.order_items import OrderItem
     from models.invoices import Invoice
+    from models.users import User
+    from models.kitchen_tickets import KitchenTicket

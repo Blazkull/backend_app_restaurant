@@ -7,9 +7,9 @@ class MenuItem(SQLModel, table=True):
 
     __tablename__ = "menu_items"
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(max_length=100, index=True)
     id_category: int = Field(foreign_key="categories.id")
-    ingredients: Optional[str] = Field(default=None, max_length=255) # Cambiado a 255 por si son muchos
+    name: str = Field(max_length=100, index=True)
+    ingredients: Optional[str] = Field(default=None, max_length=200)    
     estimated_time: int = Field(description="Tiempo estimado de preparación en minutos")
     price: float = Field(gt=0, description="Precio del ítem del menú")
     id_status: int = Field(foreign_key="status.id")
@@ -23,9 +23,8 @@ class MenuItem(SQLModel, table=True):
     # Relaciones
     category: Optional["Category"] = Relationship(back_populates="menu_items")
     status: Optional["Status"] = Relationship(back_populates="menu_items") # Nombre diferente para evitar colisión con 'status'
-    
-    # Si tienes order_items
     order_items: list["OrderItem"] = Relationship(back_populates="menu_item")
+
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
