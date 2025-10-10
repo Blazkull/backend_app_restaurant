@@ -20,11 +20,10 @@ from models.status import Status
 from schemas.menu_items_schema import MenuItemCreate, MenuItemRead, MenuItemUpdate, MenuItemListResponse
 
 # --- Configuración del Router ---
-# La dependencia de autenticación se aplica a TODOS los endpoints del router
 router = APIRouter(
     prefix="/api/menu_items", 
     tags=["MENU ITEMS"], 
-    dependencies=[Depends(decode_token)] # <--- ÚNICA DEPENDENCIA DE SEGURIDAD
+    dependencies=[Depends(decode_token)] 
 )
 
 # --- Configuración de directorio para imágenes ---
@@ -57,8 +56,17 @@ def read_menu_items(
     
     # Filtrado por IDs
     category_id: Optional[int] = Query(default=None, description="Filtrar por ID de categoría."),
-    status_id: Optional[int] = Query(default=None, description="Filtrar por ID de estado."),
+    status_id: Optional[int] = Query(default=1, description="Filtrar por ID de estado activo / inactivo (2)."),
     
+    
+    # Filtrado por rango de precio
+    min_price: Optional[float] = Query(default=None, ge=0, description="Precio mínimo."),
+    max_price: Optional[float] = Query(default=None, ge=0, description="Precio máximo."),
+
+    # Filtrador por fecha de creación
+    created_after: Optional[datetime] = Query(default=None, description="Filtrar ítems creados después de esta fecha (ISO 8601)."),
+    created_before: Optional[datetime] = Query(default=None, description="Filtrar ítems creados antes de esta fecha (ISO 8601)."),
+
     # Búsqueda
     search_term: Optional[str] = Query(default=None, description="Buscar por nombre o ingredientes (parcial)."),
     
@@ -71,17 +79,39 @@ def read_menu_items(
     offset = (page - 1) * page_size
     base_query = select(MenuItem).where(MenuItem.deleted == False)
     count_query = select(func.count(MenuItem.id)).where(MenuItem.deleted == False)
+    query = select(MenuItem).where(MenuItem.deleted == False)
     
     # Aplicar Filtros
     if category_id is not None:
         category_filter = MenuItem.id_category == category_id
         base_query = base_query.where(category_filter)
         count_query = count_query.where(category_filter)
-        
+
+    if min_price is not None:
+        min_price_filter = MenuItem.price >= min_price
+        base_query = base_query.where(min_price_filter)
+        count_query = count_query.where(min_price_filter)   
+    
+    if max_price is not None:
+        max_price_filter = MenuItem.price <= max_price
+        base_query = base_query.where(max_price_filter)
+        count_query = count_query.where(max_price_filter)
+    
+    if created_after is not None:
+        created_after_filter = MenuItem.created_at >= created_after
+        base_query = base_query.where(created_after_filter)
+        count_query = count_query.where(created_after_filter)
+
+    if created_before is not None:
+        created_before_filter = MenuItem.created_at <= created_before
+        base_query = base_query.where(created_before_filter)
+        count_query = count_query.where(created_before_filter)        
+
     if status_id is not None:
         status_filter = MenuItem.id_status == status_id
         base_query = base_query.where(status_filter)
         count_query = count_query.where(status_filter)
+
 
     if search_term:
         search_filter = (MenuItem.name.ilike(f"%{search_term}%")) | (MenuItem.ingredients.ilike(f"%{search_term}%"))
@@ -89,7 +119,7 @@ def read_menu_items(
         count_query = count_query.where(search_filter)
         
     # Obtener conteo total
-    total_items = session.exec(count_query).scalar_one_or_none() or 0
+    total_items = len(session.exec(query).all())
 
     # Aplicar Ordenación
     sort_column = getattr(MenuItem, sort_by, MenuItem.name)
@@ -101,7 +131,7 @@ def read_menu_items(
     # Aplicar Paginación y Cargar Relaciones
     final_query = base_query.offset(offset).limit(page_size).options(
         selectinload(MenuItem.category),
-        selectinload(MenuItem.status_rel)
+        selectinload(MenuItem.id_status)
     )
     
     menu_items_db = session.exec(final_query).all()
@@ -123,9 +153,9 @@ def read_menu_items(
         total_items=total_items,
         page=page,
         page_size=page_size,
-        total_pages=total_pages
-    )
+        total_pages=total_pages,
 
+    )
 
 # ----------------------------------------------------------------------
 # ENDPOINT 2: LISTAR ÍTEMS ELIMINADOS (GET /menu_items/deleted)

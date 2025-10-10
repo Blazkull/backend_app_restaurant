@@ -47,6 +47,9 @@ def read_users(
     # Búsqueda por Nombre de Usuario (parcial)
     username_search: Optional[str] = Query(default=None, description="Buscar por nombre de usuario (parcialmente)."),
     
+    # Ultima conexion
+    last_connection: Optional[datetime] = Query(default=None, description="Filtrar por última conexión (exacta)."),
+
     # Dependencia que valida el token y retorna el usuario autenticado (aunque no se use directamente, asegura el acceso)
     current_user: User = Depends(decode_token) # Se declara para asegurar que se ejecute la dependencia
 ) -> List[UserRead]:
@@ -81,7 +84,11 @@ def read_users(
     # Filtrar por nombre de usuario
     if username_search:
         query = query.where(User.username.ilike(f"%{username_search}%"))
-        
+
+    #Filtrar por última conexión (exacta)
+    if last_connection:
+        query = query.where(User.last_connection == last_connection)
+            
     # Aplicar Paginación
     query = query.offset(offset).limit(limit)
     

@@ -36,6 +36,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:   
     from models.clients import Client
     from models.orders import Order
-    from models.payment_method import PaymentMethod
+    from models.payment_methods import PaymentMethod
     from models.status import Status
     

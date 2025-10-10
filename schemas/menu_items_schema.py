@@ -2,12 +2,6 @@ from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime
 
-# Esquemas anidados para Category y Status
-class CategoryReadForMenuItem(SQLModel):
-    name: str
-
-class StatusReadForMenuItem(SQLModel):
-    name: str
 
 class MenuItemBase(SQLModel):
     name: str = Field(max_length=100)
@@ -29,10 +23,13 @@ class MenuItemUpdate(SQLModel):
     estimated_time: Optional[int] = None
     price: Optional[float] = None
     id_status: Optional[int] = None
-    image: Optional[str] = Field(default=None, max_length=100) # Solo el nombre del archivo si se actualiza
-    # Para soft delete
+    image: Optional[str] = Field(default=None, max_length=255)
     deleted: Optional[bool] = None 
 
+class MenuItemFilter(SQLModel):
+    name: Optional[str] = None
+    id_category: Optional[int] = None
+    id_status: Optional[int] = None 
 
 class MenuItemRead(MenuItemBase):
     id: int
@@ -40,12 +37,8 @@ class MenuItemRead(MenuItemBase):
     updated_at: datetime
     deleted: bool
     deleted_on: Optional[datetime]
-
-    # Relaciones para mostrar en la respuesta
-    category: Optional[CategoryReadForMenuItem] = None
-    status_rel: Optional[StatusReadForMenuItem] = None # 'status_rel' coincide con el nombre en el modelo
-    
-    # Campo adicional para enviar la URL completa de la imagen al frontend
+    id_category: Optional[int] = None
+    id_status: Optional[int] = None 
     image_url: Optional[str] = None 
     
     class Config:
@@ -58,3 +51,11 @@ class MenuItemListResponse(SQLModel):
     page: int
     page_size: int
     total_pages: int
+
+class MenuItemFilter(SQLModel):
+    name: Optional[str] = None
+    id_category: Optional[int] = None
+    id_status: Optional[int] = None
+
+    class Config:
+        from_attributes = True

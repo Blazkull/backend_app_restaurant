@@ -18,8 +18,10 @@ class User(SQLModel, table=True):
     id_role: Optional[int] = Field(default=None, foreign_key="roles.id") # Rol principal/por defecto
     id_status: Optional[int] = Field(default=None, foreign_key="status.id") 
     
+    
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    last_connection: Optional[datetime] = Field(default=None)
     deleted: bool = Field(default=False, nullable=False) 
     deleted_on: Optional[datetime] = Field(default=None)
     

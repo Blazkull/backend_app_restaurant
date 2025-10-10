@@ -16,14 +16,15 @@ def create_db_and_tables():
     from models.clients import Client
     from models.locations import Location
     from models.menu_items import MenuItem
-    from models.order_items import OrderItem
+    from models.order_items import OrderItems
     from models.orders import Order
-    from models.payment_method import PaymentMethod
+    from models.payment_methods import PaymentMethod
     from models.status import Status
     from models.tables import Table
     from models.type_identification import TypeIdentification
     from models.views import View
     from models.invoices import Invoice
+    from models.kitchen_tickets import KitchenTicket
 
     
     SQLModel.metadata.create_all(engine)

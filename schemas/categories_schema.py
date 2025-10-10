@@ -4,6 +4,7 @@ from datetime import datetime
 
 # Base Schema (Campos de entrada/negocio)
 class CategoryBase(SQLModel):
+    id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=50)
     description: Optional[str] = Field(default=None, max_length=50)
 
