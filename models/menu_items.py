@@ -7,8 +7,8 @@ class MenuItem(SQLModel, table=True):
 
     __tablename__ = "menu_items"
     id: Optional[int] = Field(default=None, primary_key=True)
-    id_category: int = Field(foreign_key="categories.id")
     name: str = Field(max_length=100, index=True)
+    id_category: int = Field(foreign_key="categories.id")
     ingredients: Optional[str] = Field(default=None, max_length=200)    
     estimated_time: int = Field(description="Tiempo estimado de preparación en minutos")
     price: float = Field(gt=0, description="Precio del ítem del menú")

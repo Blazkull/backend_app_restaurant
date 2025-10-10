@@ -9,7 +9,7 @@ from core.security import decode_token
 
 # Modelos
 from models.orders import Order
-from models.order_items import OrderItem
+from models.order_items import OrderItems
 
 # Schemas
 from schemas.orders_schema import OrderCreate, OrderRead, OrderUpdate
@@ -75,7 +75,7 @@ def create_order(order_data: OrderCreate, session: SessionDep):
 
         # Crear los ítems asociados
         for item_data in order_data.items:
-            item = OrderItem.model_validate(item_data.model_dump())
+            item = OrderItems.model_validate(item_data.model_dump())
             item.id_order = order_db.id
             item.created_at = now
             item.updated_at = now
@@ -148,9 +148,9 @@ def soft_delete_order(order_id: int, session: SessionDep):
 
         # Marcar ítems asociados como eliminados
         items = session.exec(
-            select(OrderItem).where(
-                OrderItem.id_order == order_id,
-                OrderItem.deleted == False
+            select(OrderItems).where(
+                OrderItems.id_order == order_id,
+                OrderItems.deleted == False
             )
         ).all()
 
@@ -199,9 +199,9 @@ def restore_deleted_order(order_id: int, session: SessionDep):
         session.add(order_db)
 
         items = session.exec(
-            select(OrderItem).where(
-                OrderItem.id_order == order_id,
-                OrderItem.deleted == True
+            select(OrderItems).where(
+                OrderItems.id_order == order_id,
+                OrderItems.deleted == True
             )
         ).all()
 

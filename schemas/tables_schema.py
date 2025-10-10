@@ -1,4 +1,3 @@
-from ast import List
 from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime
@@ -20,12 +19,9 @@ class TableUpdate(SQLModel):
     id_user_assigned: Optional[int] = None
 
 class TableStatusUpdate(SQLModel):
-    """Schema para actualizar únicamente el ID del estado de la mesa."""
     id_status: int = Field(..., description="El nuevo ID del estado de la mesa.")
 
-
 class TableFilter(SQLModel):
-    """Schema para filtrar mesas en consultas."""
     id_location: Optional[int] = Field(default=None, description="Filtrar por ID de ubicación.")
     id_status: Optional[int] = Field(default=None, description="Filtrar por ID de estado.")
     min_capacity: Optional[int] = Field(default=None, description="Filtrar por capacidad mínima.")
@@ -42,10 +38,7 @@ class TableRead(TableBase):
         from_attributes = True
 
 class TableListResponse(SQLModel):
-    """
-    Schema de respuesta para el endpoint de listar mesas, incluyendo paginación.
-    """
-    items: List[TableRead] = Field(description="Lista de mesas que cumplen con el filtro y paginación.")
+    items: list[TableRead] = Field(description="Lista de mesas que cumplen con el filtro y paginación.")
     total_count: int = Field(description="Número total de mesas activas que coinciden con los filtros.")
     offset: int = Field(description="El punto de inicio (offset) usado en la consulta.")
     limit: int = Field(description="El límite (limit) usado en la consulta.")
