@@ -8,7 +8,7 @@ from core.database import SessionDep
 from core.security import decode_token 
 
 from models.payment_methods import PaymentMethod # Asume que ahora tiene 'deleted' y 'deleted_on'
-from schemas.payment_method_schema import PaymentMethodCreate, PaymentMethodRead, PaymentMethodUpdate 
+from schemas.payment_method_schema import PaymentMethodCreate, PaymentMethodRead, PaymentMethodUpdate, PaymentMethodListResponse
 
 # Configuración del Router
 router = APIRouter(

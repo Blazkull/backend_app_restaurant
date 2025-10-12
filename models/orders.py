@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from sqlmodel import Field, SQLModel, Relationship
+
 
 class Order(SQLModel, table=True):
     __tablename__ = "orders"
@@ -15,24 +16,22 @@ class Order(SQLModel, table=True):
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
-    deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
+    deleted: bool = Field(default=False, nullable=False)
+    deleted_on: Optional[datetime] = Field(default=None)
 
     # Relaciones
     user_created: "User" = Relationship(back_populates="orders")
     table: "Table" = Relationship(back_populates="orders")
     status: "Status" = Relationship(back_populates="orders")
-    items: List["OrderItem"] = Relationship(back_populates="order")
+    items: List["OrderItems"] = Relationship(back_populates="order")
     kitchen_tickets: List["KitchenTicket"] = Relationship(back_populates="order")
     invoice: Optional["Invoice"] = Relationship(back_populates="order")
 
 
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from models.tables import Table
     from models.status import Status
-    from models.order_items import OrderItem
+    from models.order_items import OrderItems
     from models.invoices import Invoice
     from models.users import User
     from models.kitchen_tickets import KitchenTicket

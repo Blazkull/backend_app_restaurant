@@ -43,119 +43,119 @@ def get_image_url(image_filename: Optional[str]) -> Optional[str]:
 # ======================================================================
 
 @router.get(
-    "", 
-    response_model=MenuItemListResponse, 
+    "",
+    response_model=MenuItemListResponse,
     summary="Listar y filtrar ítems de menú activos con paginación"
 )
 def read_menu_items(
     session: SessionDep,
-    
+
     # Paginación
     page: int = Query(default=1, ge=1, description="Número de página."),
     page_size: int = Query(default=10, le=100, description="Tamaño de la página."),
-    
-    # Filtrado por IDs
+
+    # Filtros
     category_id: Optional[int] = Query(default=None, description="Filtrar por ID de categoría."),
-    status_id: Optional[int] = Query(default=1, description="Filtrar por ID de estado activo / inactivo (2)."),
-    
-    
-    # Filtrado por rango de precio
+    status_id: Optional[int] = Query(default=1, description="Filtrar por ID de estado."),
     min_price: Optional[float] = Query(default=None, ge=0, description="Precio mínimo."),
     max_price: Optional[float] = Query(default=None, ge=0, description="Precio máximo."),
-
-    # Filtrador por fecha de creación
     created_after: Optional[datetime] = Query(default=None, description="Filtrar ítems creados después de esta fecha (ISO 8601)."),
     created_before: Optional[datetime] = Query(default=None, description="Filtrar ítems creados antes de esta fecha (ISO 8601)."),
-
-    # Búsqueda
     search_term: Optional[str] = Query(default=None, description="Buscar por nombre o ingredientes (parcial)."),
-    
+
     # Ordenamiento
     sort_by: Optional[str] = Query("name", description="Campo para ordenar (name, price, estimated_time)"),
     sort_order: Optional[str] = Query("asc", description="Orden de clasificación (asc, desc)")
-    
 ) -> MenuItemListResponse:
-    
-    offset = (page - 1) * page_size
-    base_query = select(MenuItem).where(MenuItem.deleted == False)
-    count_query = select(func.count(MenuItem.id)).where(MenuItem.deleted == False)
-    query = select(MenuItem).where(MenuItem.deleted == False)
-    
-    # Aplicar Filtros
-    if category_id is not None:
-        category_filter = MenuItem.id_category == category_id
-        base_query = base_query.where(category_filter)
-        count_query = count_query.where(category_filter)
+    """
+    Lista los ítems del menú aplicando filtros, paginación y ordenamiento.
+    Retorna solo los ítems activos (no eliminados).
+    """
 
-    if min_price is not None:
-        min_price_filter = MenuItem.price >= min_price
-        base_query = base_query.where(min_price_filter)
-        count_query = count_query.where(min_price_filter)   
-    
-    if max_price is not None:
-        max_price_filter = MenuItem.price <= max_price
-        base_query = base_query.where(max_price_filter)
-        count_query = count_query.where(max_price_filter)
-    
-    if created_after is not None:
-        created_after_filter = MenuItem.created_at >= created_after
-        base_query = base_query.where(created_after_filter)
-        count_query = count_query.where(created_after_filter)
+    try:
+        offset = (page - 1) * page_size
 
-    if created_before is not None:
-        created_before_filter = MenuItem.created_at <= created_before
-        base_query = base_query.where(created_before_filter)
-        count_query = count_query.where(created_before_filter)        
+        # Base Query
+        query = select(MenuItem).where(MenuItem.deleted == False)
 
-    if status_id is not None:
-        status_filter = MenuItem.id_status == status_id
-        base_query = base_query.where(status_filter)
-        count_query = count_query.where(status_filter)
+        # Filtros
+        if category_id is not None:
+            query = query.where(MenuItem.id_category == category_id)
 
+        if status_id is not None:
+            query = query.where(MenuItem.id_status == status_id)
 
-    if search_term:
-        search_filter = (MenuItem.name.ilike(f"%{search_term}%")) | (MenuItem.ingredients.ilike(f"%{search_term}%"))
-        base_query = base_query.where(search_filter)
-        count_query = count_query.where(search_filter)
-        
-    # Obtener conteo total
-    total_items = len(session.exec(query).all())
+        if min_price is not None:
+            query = query.where(MenuItem.price >= min_price)
 
-    # Aplicar Ordenación
-    sort_column = getattr(MenuItem, sort_by, MenuItem.name)
-    if sort_order.lower() == "desc":
-        base_query = base_query.order_by(sort_column.desc())
-    else:
-        base_query = base_query.order_by(sort_column.asc())
+        if max_price is not None:
+            query = query.where(MenuItem.price <= max_price)
 
-    # Aplicar Paginación y Cargar Relaciones
-    final_query = base_query.offset(offset).limit(page_size).options(
-        selectinload(MenuItem.category),
-        selectinload(MenuItem.id_status)
-    )
-    
-    menu_items_db = session.exec(final_query).all()
-    
-    if not menu_items_db and page > 1 and total_items > 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontraron ítems en esta página.",
+        if created_after is not None:
+            query = query.where(MenuItem.created_at >= created_after)
+
+        if created_before is not None:
+            query = query.where(MenuItem.created_at <= created_before)
+
+        if search_term:
+            query = query.where(
+                (MenuItem.name.ilike(f"%{search_term}%"))
+                | (MenuItem.ingredients.ilike(f"%{search_term}%"))
+            )
+
+        # Total de registros
+        count_query = select(func.count(MenuItem.id)).where(MenuItem.deleted == False)
+        total_items = session.exec(count_query).one()
+
+        # Ordenamiento
+        sort_column = getattr(MenuItem, sort_by, MenuItem.name)
+        if sort_order.lower() == "desc":
+            query = query.order_by(sort_column.desc())
+        else:
+            query = query.order_by(sort_column.asc())
+
+        # Paginación
+        query = query.offset(offset).limit(page_size)
+
+        # ✅ OJO: eliminamos el selectinload() porque no existen relaciones en tu modelo SQLModel
+        # (si más adelante las agregas, puedes restaurarlo)
+        menu_items_db = session.exec(query).all()
+
+        # Post-proceso: construir respuesta y URL de imagen
+        items = [
+            MenuItemRead(
+                id=item.id,
+                name=item.name,
+                id_category=item.id_category,
+                ingredients=item.ingredients,
+                estimated_time=item.estimated_time,
+                price=item.price,
+                id_status=item.id_status,
+                image=item.image,
+                image_url=get_image_url(item.image),
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                deleted=item.deleted,
+                deleted_on=item.deleted_on,
+            )
+            for item in menu_items_db
+        ]
+
+        total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 0
+
+        return MenuItemListResponse(
+            items=items,
+            total_items=total_items,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
         )
-        
-    # Post-procesar para añadir image_url
-    for item in menu_items_db:
-        item.image_url = get_image_url(item.image)
-        
-    total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 0
 
-    return MenuItemListResponse(
-        items=menu_items_db,
-        total_items=total_items,
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages,
-
-    )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al listar los ítems del menú: {e}"
+        )
 
 # ----------------------------------------------------------------------
 # ENDPOINT 2: LISTAR ÍTEMS ELIMINADOS (GET /menu_items/deleted)
@@ -174,7 +174,7 @@ def read_deleted_menu_items(
     
     query = select(MenuItem).where(MenuItem.deleted == True).offset(offset).limit(limit).options(
         selectinload(MenuItem.category),
-        selectinload(MenuItem.status_rel)
+        selectinload(MenuItem.status)
     )
     menu_items = session.exec(query).all()
     
@@ -194,26 +194,41 @@ def read_deleted_menu_items(
 # ENDPOINT 3: OBTENER ÍTEM POR ID (GET /menu_items/{item_id}) -> SOLO ACTIVOS
 # ----------------------------------------------------------------------
 
-@router.get("/{item_id}", response_model=MenuItemRead, summary="Obtener un ítem de menú por ID (excluye eliminados)")
+@router.get(
+    "/{item_id}",
+    response_model=MenuItemRead,
+    summary="Obtener un ítem de menú por ID (excluye eliminados)"
+)
 def read_menu_item(item_id: int, session: SessionDep):
-    
+    # Eliminamos selectinload() ya que tu modelo no tiene relaciones category/status
     query = select(MenuItem).where(
-        MenuItem.id == item_id, 
-        MenuItem.deleted == False 
-    ).options(
-        selectinload(MenuItem.category),
-        selectinload(MenuItem.status_rel)
+        MenuItem.id == item_id,
+        MenuItem.deleted == False
     )
     menu_item_db = session.exec(query).first()
-    
+
     if not menu_item_db:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Menu item doesn't exist or is deleted."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Menu item doesn't exist or is deleted."
         )
-        
-    menu_item_db.image_url = get_image_url(menu_item_db.image)
-    return menu_item_db 
 
+    # Crear una instancia del esquema de salida que sí tiene image_url
+    return MenuItemRead(
+        id=menu_item_db.id,
+        name=menu_item_db.name,
+        id_category=menu_item_db.id_category,
+        ingredients=menu_item_db.ingredients,
+        estimated_time=menu_item_db.estimated_time,
+        price=menu_item_db.price,
+        id_status=menu_item_db.id_status,
+        image=menu_item_db.image,
+        image_url=get_image_url(menu_item_db.image),
+        created_at=menu_item_db.created_at,
+        updated_at=menu_item_db.updated_at,
+        deleted=menu_item_db.deleted,
+        deleted_on=menu_item_db.deleted_on,
+    )
 # ----------------------------------------------------------------------
 # ENDPOINT 4: CREAR ÍTEM DE MENÚ (POST /menu_items)
 # ----------------------------------------------------------------------
@@ -272,7 +287,7 @@ async def create_menu_item_with_image(
         session.refresh(menu_db)
         
         # Cargar relaciones para la respuesta
-        session.refresh(menu_db, attribute_names=["category", "status_rel"]) 
+        session.refresh(menu_db, attribute_names=["category", "status"]) 
         menu_db.image_url = get_image_url(menu_db.image)
         
         return menu_db
@@ -371,7 +386,7 @@ async def update_menu_item(
         session.refresh(menu_db)
 
         # Cargar relaciones y URL para la respuesta
-        session.refresh(menu_db, attribute_names=["category", "status_rel"])
+        session.refresh(menu_db, attribute_names=["category", "status"])
         menu_db.image_url = get_image_url(menu_db.image)
         
         return menu_db 
@@ -465,7 +480,7 @@ def restore_deleted_menu_item(item_id: int, session: SessionDep):
         session.refresh(menu_db)
         
         # Cargar relaciones y URL para la respuesta
-        session.refresh(menu_db, attribute_names=["category", "status_rel"])
+        session.refresh(menu_db, attribute_names=["category", "status"])
         menu_db.image_url = get_image_url(menu_db.image)
 
         return menu_db
