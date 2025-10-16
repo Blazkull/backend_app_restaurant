@@ -9,6 +9,7 @@ class UserBase(SQLModel):
     email: EmailStr = Field(max_length=100)
     id_role: Optional[int] = None
     id_status: Optional[int] = None
+    last_connection: Optional[datetime] = None
 
 class UserLogin(SQLModel):
     username: str = Field(max_length=50)
@@ -34,6 +35,7 @@ class UserRead(UserBase):
     updated_at: datetime
     deleted: bool = False 
     deleted_on: Optional[datetime] = None
+    last_connection: Optional[datetime] = None
     
     class Config:
         from_attributes = True

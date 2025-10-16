@@ -3,7 +3,6 @@ from typing import Optional, List
 from sqlmodel import Field, SQLModel, Relationship
 
 
-
 class Status(SQLModel, table=True):
     __tablename__ = "status"
     
@@ -13,8 +12,8 @@ class Status(SQLModel, table=True):
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
-    deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
+    deleted: bool = Field(default=False, nullable=False)
+    deleted_on: Optional[datetime] = Field(default=None)
 
     # Relaciones
     roles: List["Role"] = Relationship(back_populates="status")
@@ -24,9 +23,11 @@ class Status(SQLModel, table=True):
     tables: List["Table"] = Relationship(back_populates="status")
     orders: List["Order"] = Relationship(back_populates="status")
     invoices: List["Invoice"] = Relationship(back_populates="status")
+    kitchen_tickets: List["KitchenTicket"] = Relationship(back_populates="status") 
+
 
 from typing import TYPE_CHECKING
-if TYPE_CHECKING:       
+if TYPE_CHECKING:
     from models.roles import Role
     from models.users import User
     from models.views import View
@@ -34,3 +35,4 @@ if TYPE_CHECKING:
     from models.tables import Table
     from models.orders import Order
     from models.invoices import Invoice
+    from models.kitchen_tickets import KitchenTicket  

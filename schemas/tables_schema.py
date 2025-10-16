@@ -16,6 +16,16 @@ class TableUpdate(SQLModel):
     id_location: Optional[int] = None
     capacity: Optional[int] = None
     id_status: Optional[int] = None
+    id_user_assigned: Optional[int] = None
+
+class TableStatusUpdate(SQLModel):
+    id_status: int = Field(..., description="El nuevo ID del estado de la mesa.")
+
+class TableFilter(SQLModel):
+    id_location: Optional[int] = Field(default=None, description="Filtrar por ID de ubicación.")
+    id_status: Optional[int] = Field(default=None, description="Filtrar por ID de estado.")
+    min_capacity: Optional[int] = Field(default=None, description="Filtrar por capacidad mínima.")
+    max_capacity: Optional[int] = Field(default=None, description="Filtrar por capacidad máxima.")
 
 class TableRead(TableBase):
     id: int
@@ -26,3 +36,11 @@ class TableRead(TableBase):
     
     class Config:
         from_attributes = True
+
+class TableListResponse(SQLModel):
+    items: list[TableRead] = Field(description="Lista de mesas que cumplen con el filtro y paginación.")
+    total_count: int = Field(description="Número total de mesas activas que coinciden con los filtros.")
+    offset: int = Field(description="El punto de inicio (offset) usado en la consulta.")
+    limit: int = Field(description="El límite (limit) usado en la consulta.")
+    total_pages: int = Field(description="El número total de páginas disponibles.")
+    current_page: int = Field(description="El número de página actual (basado en offset y limit).")

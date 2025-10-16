@@ -1,7 +1,6 @@
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from sqlmodel import Field, SQLModel, Relationship
-# Importamos el Link Model
 from .link_models import UserRoleLink
 
 class User(SQLModel, table=True):
@@ -14,27 +13,29 @@ class User(SQLModel, table=True):
     password: str = Field(max_length=100, nullable=False)
     email: str = Field(max_length=100, unique=True, nullable=False)
     
-    # Claves Foráneas
-    id_role: Optional[int] = Field(default=None, foreign_key="roles.id") # Rol principal/por defecto
-    id_status: Optional[int] = Field(default=None, foreign_key="status.id") 
+    id_role: Optional[int] = Field(default=None, foreign_key="roles.id")
+    id_status: Optional[int] = Field(default=None, foreign_key="status.id")
     
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    deleted: bool = Field(default=False, nullable=False) 
+    last_connection: Optional[datetime] = Field(default=None)
+    deleted: bool = Field(default=False, nullable=False)
     deleted_on: Optional[datetime] = Field(default=None)
-    
 
     # Relaciones
     role: "Role" = Relationship(back_populates="users")
     status: "Status" = Relationship(back_populates="users")
     tokens: List["Token"] = Relationship(back_populates="user")
-    # M:N a Role (para roles adicionales)
     roles: List["Role"] = Relationship(back_populates="users", link_model=UserRoleLink)
 
+    # 🔹 NUEVO: Relación con órdenes
+    orders: List["Order"] = Relationship(back_populates="user_created")
+    tables_assigned: List["Table"] = Relationship(back_populates="user_assigned")
 
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from models.status import Status
     from models.roles import Role
     from models.tokens import Token
-    
+    from models.orders import Order
+    from models.tables import Table

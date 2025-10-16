@@ -19,7 +19,6 @@ sys.path.append(str(ROOT_DIR))
 from core.database import create_db_and_tables, engine, ping_database 
 
 # --- Importación de Routers ---
-from routers import login
 from routers import auth  
 from routers import users 
 from routers import roles 
@@ -27,7 +26,6 @@ from routers import view
 from routers import information_company
 from routers import categories
 from routers import clients
-from routers import kitchen
 from routers import locations
 from routers import menu_items
 from routers import order_items
@@ -36,6 +34,8 @@ from routers import payment_method
 from routers import status
 from routers import tables
 from routers import type_identification
+from routers import kitchen_tickets
+from routers import invoices
 
 
 
@@ -89,7 +89,6 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static") 
 
 # --- Inclusión de Routers (Rutas de la API) ---
-app.include_router(login.router)
 app.include_router(auth.router)
 app.include_router(users.router) 
 app.include_router(roles.router) 
@@ -97,7 +96,6 @@ app.include_router(view.router)
 app.include_router(information_company.router)
 app.include_router(categories.router)
 app.include_router(clients.router)
-app.include_router(kitchen.router)
 app.include_router(locations.router)
 app.include_router(menu_items.router)
 app.include_router(order_items.router)
@@ -106,6 +104,8 @@ app.include_router(payment_method.router)
 app.include_router(status.router)
 app.include_router(tables.router)
 app.include_router(type_identification.router)
+app.include_router(kitchen_tickets.router)
+app.include_router(invoices.router)
 
 
 

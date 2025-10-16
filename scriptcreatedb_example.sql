@@ -66,6 +66,7 @@ CREATE TABLE users (
     active BOOLEAN DEFAULT TRUE, -- Campo útil para FastAPI/Autenticación (adicional al soft delete)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    last_connection TIMESTAMP NULL,
     deleted BOOLEAN DEFAULT FALSE,
     deleted_on TIMESTAMP NULL,
     FOREIGN KEY (id_role) REFERENCES roles(id) ON UPDATE CASCADE,
@@ -158,12 +159,14 @@ CREATE TABLE tables (
     id_location INT NOT NULL,
     capacity INT NOT NULL,
     id_status INT NOT NULL,
+    id_user_assigned INT, -- Se permite NULL si no hay usuario asignado
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted BOOLEAN DEFAULT FALSE,
     deleted_on TIMESTAMP NULL,
     FOREIGN KEY (id_location) REFERENCES locations(id) ON UPDATE CASCADE,
-    FOREIGN KEY (id_status) REFERENCES status(id) ON UPDATE CASCADE
+    FOREIGN KEY (id_status) REFERENCES status(id) ON UPDATE CASCADE,
+    FOREIGN KEY (id_user_assigned) REFERENCES users(id) ON UPDATE CASCADE
 );
 
 
@@ -210,6 +213,8 @@ CREATE TABLE orders (
     id INT PRIMARY KEY AUTO_INCREMENT,
     id_table INT NOT NULL,
     id_status INT NOT NULL,
+    id_user_created INT NOT NULL,
+    total_value DECIMAL(10, 2) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted BOOLEAN DEFAULT FALSE,
@@ -224,18 +229,33 @@ CREATE TABLE order_items (
     id_order INT NOT NULL, -- Se hace NOT NULL ya que un ítem debe pertenecer a una orden
     id_menu_item INT NOT NULL, -- Se hace NOT NULL
     quantity INT NOT NULL CHECK (quantity > 0), -- Se agrega restricción de cantidad
-    note VARCHAR(100), -- Aumentado el tamaño
+    note VARCHAR(100),
+    price_at_order DECIMAL(10, 2) NOT NULL, -- Precio al momento del pedido
+    id_kitchen_ticket INT, -- Se permite NULL si no se ha generado ticket de cocina
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted BOOLEAN DEFAULT FALSE,
     deleted_on TIMESTAMP NULL,
     FOREIGN KEY (id_order) REFERENCES orders(id) ON DELETE CASCADE ON UPDATE CASCADE,
     FOREIGN KEY (id_menu_item) REFERENCES menu_items(id) ON UPDATE CASCADE,
-    -- Restricción para que solo haya un ítem de menú por orden (si lo necesitas)
-    UNIQUE (id_order, id_menu_item) 
+    FOREIGN KEY (id_kitchen_ticket) REFERENCES kitchen_tickets(id) ON UPDATE CASCADE
 );
 
--- 17. Información de la Empresa (SIN Soft Delete)
+-- 17. kitchen_tickets table (para referencia en order_items)
+CREATE TABLE kitchen_tickets (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    id_order INT NOT NULL,
+    id_status INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted BOOLEAN DEFAULT FALSE,
+    deleted_on TIMESTAMP NULL,
+    FOREIGN KEY (id_order) REFERENCES orders(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY (id_status) REFERENCES status(id) ON UPDATE CASCADE
+);
+
+
+-- 18. Información de la Empresa (SIN Soft Delete)
 CREATE TABLE information_company (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -247,24 +267,22 @@ CREATE TABLE information_company (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 18. Facturas
+-- 19. Facturas
 CREATE TABLE invoices (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    id_client INT, -- Se permite NULL si es venta anónima/público general
-    id_order INT NOT NULL UNIQUE, -- Una orden solo se factura una vez
+    id_client INT,
+    id_order INT NOT NULL UNIQUE,
     id_payment_method INT NOT NULL,
-    -- Los campos returned y ammount_paid no son estrictamente necesarios en la BD para la lógica total, 
-    -- ya que pueden calcularse, pero se mantienen si los necesitas para la auditoría de caja.
-    returned DECIMAL(10, 2), -- Puede ser nulo o 0
-    ammount_paid DECIMAL(10, 2) NOT NULL, 
-    total DECIMAL(10, 2) NOT NULL,
-    id_status INT NOT NULL, -- El estado de la factura (Pagada, Cancelada, etc.)
+    returned DECIMAL(10,2),
+    ammount_paid DECIMAL(10,2) NOT NULL,
+    total DECIMAL(10,2) NOT NULL,
+    id_status INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted BOOLEAN DEFAULT FALSE,
     deleted_on TIMESTAMP NULL,
-    FOREIGN KEY (id_order) REFERENCES orders(id) ON UPDATE CASCADE,
     FOREIGN KEY (id_client) REFERENCES clients(id) ON UPDATE CASCADE,
+    FOREIGN KEY (id_order) REFERENCES orders(id) ON UPDATE CASCADE,
     FOREIGN KEY (id_payment_method) REFERENCES payment_method(id) ON UPDATE CASCADE,
     FOREIGN KEY (id_status) REFERENCES status(id) ON UPDATE CASCADE
 );
@@ -273,95 +291,141 @@ CREATE TABLE invoices (
 -- =========================================================
 -- Inserción de Datos Iniciales (Seeders)
 -- =========================================================
-
--- Asumiendo que esta es la primera ejecución:
-
--- 1. Tipo de Identificación (Necesario para 'clients')
+-- 1. Tipo de Identificación (type_identification)
 INSERT INTO type_identification (type_identification) VALUES
 ('Cédula Ciudadanía'),
 ('Cédula Extranjería'),
 ('Pasaporte'),
 ('NIT');
 
--- 2. Status/Estado (Necesario para casi todas las tablas)
+-- 2. Status/Estado (status)
 INSERT INTO status (name, description) VALUES
+-- 1-2: Estados generales
 ('Activo', 'Registro activo y en uso'),
 ('Inactivo', 'Registro inactivo o deshabilitado'),
-('Pendiente', 'Registro en espera de alguna acción'),
+
+-- 3-4: Estados para mesas
 ('Ocupada', 'Mesa ocupada'),
 ('Disponible', 'Mesa disponible'),
-('Preparación', 'Pedido en cocina'),
+
+-- 5-7: Estados para órdenes
+('Creada', 'Orden creada'),
+('En Proceso', 'Orden en proceso'),
 ('Entregado', 'Pedido entregado'),
-('Pagada', 'Factura pagada'),
-('Cancelada', 'Factura cancelada');
 
+-- 8-12: Estados para tickets de cocina
+('Pendiente', 'Pedido pendiente de cocina'),
+('Preparación', 'Pedido en preparacion'),
+('Listo', 'Pedido listo para servir'),
+('Entregado', 'Pedido entregado al cliente'),
+('Cancelada', 'Orden, factura o item cancelado'), -- Reutilizado para cancelaciones
 
--- 3. Métodos de Pago (Necesario para 'invoices')
+-- 13: Estados para facturas
+('Pagada', 'Factura pagada');
+('Anulada', 'Factura anulada');
+
+-- 3. Métodos de Pago (payment_method)
 INSERT INTO payment_method (name) VALUES
 ('Efectivo'),
 ('Tarjeta Crédito/Débito'),
 ('Transferencia');
 
 
--- 4. Roles (Asumiendo id_status = 1 para 'Activo')
+-- 4. Roles (roles) - id_status = 1 (Activo)
 INSERT INTO roles (name, id_status) VALUES
-('Administrador', 1),
-('Mesero', 1),
-('Jefe de Cocina', 1),
-('Cajero', 1);
+('Administrador', 1), -- ID 1
+('Mesero', 1),        -- ID 2
+('Jefe de Cocina', 1), -- ID 3
+('Cajero', 1);        -- ID 4
 
-
--- 5. Usuarios (Asumiendo id_role = 1 para 'Administrador' y id_status = 1 para 'Activo')
+-- 5. Usuarios (users)
 -- NOTA: La contraseña '$2a$12$GByghX4O968/l61.1zzJiO2a/qgXCms75GZITCb1.6mIjT6BeUEnK' corresponde a 'admin'
+-- id_role = 1 (Administrador), id_status = 1 (Activo)
 INSERT INTO users (name, username, password, email, id_role, id_status, active) VALUES
-('Jhon Acosta Acosta', 'admin', '$2a$12$GByghX4O968/l61.1zzJiO2a/qgXCms75GZITCb1.6mIjT6BeUEnK', 'admin@gmail.com', 1, 1, TRUE);
+('Jhon Acosta Acosta', 'admin', '$2a$12$GByghX4O968/l61.1zzJiO2a/qgXCms75GZITCb1.6mIjT6BeUEnK', 'admin@gmail.com', 1, 1, TRUE), -- ID 1
+('Ana García', 'anamesera', 'password_mesera', 'ana.garcia@rest.com', 2, 1, TRUE),                                        -- ID 2
+('Pedro Pérez', 'pedrococina', 'password_cocina', 'pedro.perez@rest.com', 3, 1, TRUE);                                      -- ID 3
 
-
--- 7. Vistas (Recursos de Permisos) - ACTUALIZADO con la columna 'path' y NUEVOS REGISTROS
--- Asignación de paths a los registros existentes:
+-- 7. Vistas (views) - id_status = 1 (Activo)
 INSERT INTO views (name, path, id_status) VALUES
-('Dashboard', '/api/dashboard/admin', 1),
-('Pedidos', '/api/orders/admin', 1),
-('Menú', '/api/menu_items/admin', 1),
-('Mesas', '/api/tables/admin', 1),
-('Clientes', '/api/clients/admin', 1),
-('Usuarios', '/api/users/admin', 1),
-('Reportes', '/api/reports/admin', 1),
-('Roles', '/api/roles/admin', 1),
-('Vistas', '/api/views/admin', 1),
-('Estados', '/api/status/admin', 1),
-('Categorías', '/api/categories/admin', 1),
-('Información de Empresa', '/api/info/admin', 1),
-('Facturas', '/api/invoices/admin', 1),
-('Órdenes de Cocina', '/api/kitchen_orders/admin', 1),
-('Ubicaciones', '/api/locations/admin', 1),
-('Ítems de Pedido', '/api/order_items/admin', 1),
-('Pagos', '/api/payments/admin', 1),
-('Tipos de Identificación', '/api/type_identifications/admin', 1);
+('Dashboard', '/api/dashboard', 1),                      -- ID 1
+('Pedidos', '/api/orders', 1),                           -- ID 2
+('Menú', '/api/menu_items', 1),                          -- ID 3
+('Mesas', '/api/tables', 1),                             -- ID 4
+('Clientes', '/api/clients', 1),                         -- ID 5
+('Usuarios', '/api/users', 1),                           -- ID 6
+('Reportes', '/api/reports', 1),                         -- ID 7
+('Roles', '/api/roles', 1),                              -- ID 8
+('Vistas', '/api/views', 1),                             -- ID 9
+('Estados', '/api/status', 1),                           -- ID 10
+('Categorías', '/api/categories', 1),                    -- ID 11
+('Información de Empresa', '/api/info', 1),              -- ID 12
+('Facturas', '/api/invoices', 1),                        -- ID 13
+('Órdenes de Cocina', '/api/kitchen_orders', 1),         -- ID 14
+('Ubicaciones', '/api/locations', 1),                    -- ID 15
+('Ítems de Pedido', '/api/order_items', 1),              -- ID 16
+('Pagos', '/api/payments', 1),                           -- ID 17
+('Tipos de Identificación', '/api/type_identifications', 1); -- ID 18
 
--- 9. Enlace Rol-Vistas (Permisos M:N) - Asignación de TODOS los recursos al rol Administrador
--- NOTA: Se asume que el Administrador (id_role=1) tiene acceso a TODOS los 18 recursos.
+
+-- 9. Enlace Rol-Vistas (role_view_link) - Permisos M:N
+-- Administrador (id_role=1) tiene acceso a TODOS los 18 recursos (enabled=TRUE).
 INSERT INTO role_view_link (id_role, id_view, enabled) VALUES
 (1, 1, TRUE), (1, 2, TRUE), (1, 3, TRUE), (1, 4, TRUE), (1, 5, TRUE), (1, 6, TRUE), (1, 7, TRUE), (1, 8, TRUE),
 (1, 9, TRUE), (1, 10, TRUE), (1, 11, TRUE), (1, 12, TRUE), (1, 13, TRUE), (1, 14, TRUE), (1, 15, TRUE), (1, 16, TRUE),
 (1, 17, TRUE), (1, 18, TRUE);
+-- Mesero (id_role=2) tiene acceso limitado
+INSERT INTO role_view_link (id_role, id_view, enabled) VALUES
+(2, 2, TRUE), -- Pedidos
+(2, 3, TRUE), -- Menú
+(2, 4, TRUE), -- Mesas
+(2, 5, TRUE); -- Clientes
+-- Jefe de Cocina (id_role=3)
+INSERT INTO role_view_link (id_role, id_view, enabled) VALUES
+(3, 14, TRUE), -- Órdenes de Cocina
+(3, 3, TRUE);  -- Menú (para verificar ingredientes/tiempos)
 
 
--- 11. Ubicaciones (Necesario para 'tables')
+
+-- 11. Ubicaciones (locations) - id_status = 1 (Activo)
 INSERT INTO locations (name, description) VALUES
-('Salón Principal', 'Zona de mesas cerca de la entrada'),
-('Terraza', 'Zona al aire libre'),
-('Barra', 'Asientos en la barra');
+('Salón Principal', 'Zona de mesas cerca de la entrada'), -- ID 1
+('Terraza', 'Zona al aire libre'),                       -- ID 2
+('Barra', 'Asientos en la barra');                       -- ID 3
+
+-- 12. Mesas (tables) - id_location, id_status (3=Ocupada, 4=Disponible)
+INSERT INTO tables (name, id_location, capacity, id_status, id_user_assigned) VALUES
+('Mesa 1', 1, 4, 4, NULL), -- Salón Principal, Disponible
+('Mesa 2', 1, 2, 3, 2),    -- Salón Principal, Ocupada, Asignada a Ana (id_user=2)
+('Mesa 3', 1, 6, 4, 2),    -- Salón Principal, Disponible, Asignada a Ana (id_user=2)
+('Mesa T1', 2, 4, 4, NULL),-- Terraza, Disponible
+('Barra A', 3, 2, 4, NULL);-- Barra, Disponible
 
 
--- 13. Categorías (Necesario para 'menu_items')
+-- 13. Categorías (categories)
 INSERT INTO categories (name, description) VALUES
-('Platos Fuertes', 'Comidas principales'),
-('Entradas', 'Aperitivos y sopas'),
-('Bebidas', 'Jugos, gaseosas, y licores'),
-('Postres', 'Dulces y cafés');
+('Platos Fuertes', 'Comidas principales'), -- ID 1
+('Entradas', 'Aperitivos y sopas'),        -- ID 2 (Corregido, se usa este para los ítems)
+('Bebidas', 'Jugos, gaseosas, y licores'), -- ID 3
+('Postres', 'Dulces y cafés');             -- ID 4
 
+-- 14. Ítems de Menú (menu_items)
+-- id_status: 1=Activo, 2=Inactivo
+INSERT INTO menu_items (name, id_category, ingredients, estimated_time, price, id_status, image) VALUES
+-- ID 1-2: Entradas (id_category = 2)
+('Nachos Supremes', 2, 'Totopos de maíz, queso cheddar fundido, carne molida, frijoles refritos, pico de gallo, crema agria y jalapeños.', 15, 9.99, 1, 'nachos_supremes.jpg'),
+('Aros de Cebolla Gourmet', 2, 'Cebolla blanca en rodajas gruesas, rebozado crujiente de cerveza, salsa ranch de la casa.', 10, 6.50, 1, 'aros_cebolla.jpg'),
 
--- 17. Información de la Empresa 
-INSERT INTO information_company (name, address, location, identification_number, email) VALUES
-('Restaurante La Media Luna', 'Calle 123 #45-67', 'Barranquilla, Atlantico', '900123456-7','admin@lamedialuna.com');
+-- ID 3-7: Platos Fuertes (id_category = 1)
+('Hamburguesa Clásica Especial', 1, 'Doble carne de res (200g), queso cheddar, tocino, lechuga, tomate, cebolla caramelizada, salsa BBQ, pan brioche.', 20, 14.75, 1, 'hamburguesa_especial.jpg'), -- Estado 1 (Activo)
+('Salmón a la Plancha con Asparagus',1, 'Filete de salmón (180g) a la plancha, espárragos salteados, reducción de balsámico y limón.', 25, 21.90, 1, 'salmon_asparagus.jpg'),
+('Pizza Margarita Artesanal', 1, 'Masa fermentada, salsa de tomate San Marzano, mozzarella fresca, albahaca y aceite de oliva virgen extra.', 18, 12.00, 1, 'pizza_margarita.jpg'),
+('Curry de Garbanzos y Verduras', 1, 'Garbanzos, espinacas, pimientos, cebolla en salsa curry cremosa de coco, servido con arroz basmati.', 20, 15.50, 1, 'curry_garbanzos.jpg'),
+('Pasta Alfredo con Camarones', 1, 'Fettuccine en salsa cremosa Alfredo con camarones jumbo y un toque de ajo y perejil.', 22, 18.25, 2, 'pasta_camarones.jpg'), -- Estado 2 (Inactivo, estaba en 3)
+
+-- ID 8-9: Postres (id_category = 4)
+('Volcán de Chocolate con Helado', 4, 'Bizcocho de chocolate con centro líquido, servido con helado de vainilla y coulis de frambuesa.', 12, 7.50, 1, 'volcan_chocolate.jpg'),
+('Tiramisú Clásico', 4, 'Capas de bizcocho de soletilla empapadas en café, crema de mascarpone y cacao en polvo.', 5, 6.95, 1, 'tiramisu_clasico.jpg'),
+
+-- ID 10: Bebidas (id_category = 3)
+('Limonada de Menta Refrescante', 3, 'Jugo de limón natural, agua, azúcar, hojas de menta fresca.', 5, 3.50, 1, 'limonada_menta.jpg');

@@ -26,6 +26,7 @@ class Invoice(SQLModel, table=True):
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     deleted: bool = Field(default=False, nullable=False) # Campo Soft Delete (Estado)
     deleted_on: Optional[datetime] = Field(default=None) # Campo Soft Delete (Fecha)
+    note: Optional[str] = Field(default=None, max_length=100)
 
     client: "Client" = Relationship(back_populates="invoices")
     order: "Order" = Relationship(back_populates="invoice")
@@ -36,6 +37,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:   
     from models.clients import Client
     from models.orders import Order
-    from models.payment_method import PaymentMethod
+    from models.payment_methods import PaymentMethod
     from models.status import Status
     

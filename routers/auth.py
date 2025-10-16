@@ -64,6 +64,13 @@ def login_user(user_data: UserLogin, session: SessionDep):
             token_entry.status_token = False
             session.add(token_entry)
         
+        #Actualizar fecha de ultimo login
+        user_db.last_connection= datetime.utcnow()
+        session.add(user_db)
+        session.commit()
+        session.refresh(user_db)
+
+
         # Generar Nuevo Token JWT
         payload = {
             "username": user_db.username, 

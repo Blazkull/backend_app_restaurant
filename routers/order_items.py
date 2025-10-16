@@ -1,299 +1,277 @@
-from fastapi import APIRouter, Depends, status, HTTPException
-from sqlmodel import select
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.params import Query
+from sqlmodel import col, select
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
-# Importa las dependencias del Core
+# --- Core ---
 from core.database import SessionDep
-from core.security import decode_token 
+from core.security import decode_token
 
-from models.order_items import OrderItem 
-from models.orders import Order 
+# --- Modelos ---
+from models.order_items import OrderItems
+from models.orders import Order
 from models.menu_items import MenuItem
-from schemas.order_items_schema import OrderItemCreate, OrderItemRead, OrderItemUpdate 
 
-# Configuración del Router con prefijo y dependencia de autenticación
+# --- Schemas ---
+from schemas.order_items_schema import (
+    OrderItemRead,
+    OrderItemCreate,
+    OrderItemUpdate,
+    OrderItemBulkCreate
+)
+
 router = APIRouter(
-    prefix="/api/orders/{order_id}/items", 
-    tags=["ORDER ITEMS"], 
+    prefix="/api/order_items",
+    tags=["ORDER ITEMS"],
     dependencies=[Depends(decode_token)]
 )
 
-# --- RUTAS DE LECTURA (GET) ---
-
-@router.get("", response_model=List[OrderItemRead]) # Ruta: /api/orders/{order_id}/items
-def list_order_items(order_id: int, session: SessionDep):
+# ===================================================================
+# GET → Listar todos los ítems de pedido (activos)
+# ===================================================================
+@router.get("", status_code=status.HTTP_200_OK)
+def list_order_items(
+    session: SessionDep,
+    id_order: Optional[int] = Query(None, description="Filtrar por ID de orden"),
+    id_menu_item: Optional[int] = Query(None, description="Filtrar por ID de ítem de menú"),
+    status_item: Optional[str] = Query(None, description="Filtrar por estado del ítem"),
+    created_from: Optional[datetime] = Query(None, description="Filtrar desde fecha de creación"),
+    created_to: Optional[datetime] = Query(None, description="Filtrar hasta fecha de creación"),
+    limit: int = Query(20, description="Límite de resultados por página"),
+    offset: int = Query(0, description="Desplazamiento para paginación")
+):
     """
-    Lista todos los ítems activos (deleted=False) de una orden específica.
+    Lista los ítems de pedido con filtros opcionales y metadatos de paginación.
     """
-    # Validación: Verificar que la Orden padre exista y no esté eliminada
-    order_db = session.get(Order, order_id)
-    # >>> CAMBIO 1: Usar 'deleted' en lugar de 'deleted_at'
-    if not order_db or order_db.deleted is True: 
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="La orden padre no existe o está eliminada."
-        )
-
     try:
-        # Consulta los OrderItems que pertenecen a la orden y no estan eliminados
-        # >>> CAMBIO 2: Usar 'deleted = False' en lugar de 'deleted_at == None'
-        statement = (
-            select(OrderItem)
-            .where(OrderItem.id_order == order_id)
-            .where(OrderItem.deleted == False)
-        )
-        return session.exec(statement).all()
+        query = select(OrderItems)
+
+        if id_order:
+            query = query.where(col(OrderItems.id_order) == id_order)
+        if id_menu_item:
+            query = query.where(col(OrderItems.id_menu_item) == id_menu_item)
+        if status_item:
+            query = query.where(col(OrderItems.status) == status_item)
+        if created_from:
+            query = query.where(col(OrderItems.created_at) >= created_from)
+        if created_to:
+            query = query.where(col(OrderItems.created_at) <= created_to)
+
+        total_count = session.exec(query).count()  # ✅ más óptimo
+        query = query.limit(limit).offset(offset)
+
+        items = session.exec(query).all()
+
+        return {
+            "data": items,
+            "metadata": {
+                "total_count": total_count,
+                "limit": limit,
+                "offset": offset
+            }
+        }
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al listar los ítems de la orden: {str(e)}",
+            detail=f"Error al listar ítems de orden: {str(e)}",
         )
 
-@router.get("/{item_id}", response_model=OrderItemRead) # Ruta: /api/orders/{order_id}/items/{item_id}
-def read_order_item(order_id: int, item_id: int, session: SessionDep):
-    """Obtiene un OrderItem específico por ID, validando su pertenencia a la orden y que esté activo."""
-    # Validación: Verificar que la Orden padre exista
-    order_db = session.get(Order, order_id)
-    # >>> CAMBIO 3: Usar 'deleted' en lugar de 'deleted_at'
-    if not order_db or order_db.deleted is True:
+
+# ===================================================================
+# GET → Obtener ítem por ID
+# ===================================================================
+@router.get("/{item_id}", response_model=OrderItemRead)
+def get_order_item(item_id: int, session: SessionDep):
+    """Obtiene un ítem de pedido específico por su ID."""
+    item = session.get(OrderItems, item_id)
+    if not item:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="La orden padre no existe o está eliminada."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ítem de orden no encontrado."
         )
-        
-    try:
-        order_item_db = session.get(OrderItem, item_id)
-        
-        # Validación de existencia, soft delete y pertenencia a la orden correcta
-        # >>> CAMBIO 4: Usar 'deleted' en lugar de 'deleted_at'
-        if not order_item_db or order_item_db.deleted is True or order_item_db.id_order != order_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de la orden no encontrado."
-            )
-        return order_item_db
-    except HTTPException as http_exc:
-        raise http_exc
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al leer el ítem de la orden: {str(e)}",
+    return item
+
+# ===================================================================
+# POST → Crear ítem individual
+# ===================================================================
+@router.post("", response_model=OrderItemRead, status_code=status.HTTP_201_CREATED)
+def create_order_item(item_data: OrderItemCreate, session: SessionDep):
+    """Crea un nuevo ítem para una orden existente."""
+    order = session.get(Order, item_data.id_order)
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada.")
+
+    menu_item = session.get(MenuItem, item_data.id_menu_item)
+    if not menu_item or menu_item.id_status != 1:
+        raise HTTPException(status_code=404, detail="Plato no encontrado o inactivo.")
+
+    # Crear ítem
+    item_db = OrderItems.model_validate(item_data.model_dump())
+    item_db.price_at_order = menu_item.price
+    item_db.created_at = datetime.utcnow()
+    item_db.updated_at = datetime.utcnow()
+
+    session.add(item_db)
+    session.flush()
+
+    # Actualizar valor total de la orden
+    order.total_value += item_db.price_at_order * item_db.quantity
+    order.updated_at = datetime.utcnow()
+    session.add(order)
+
+    session.commit()
+    session.refresh(item_db)
+    return item_db
+
+# ===================================================================
+# POST → Crear múltiples ítems (bulk)
+# ===================================================================
+@router.post("/bulk", response_model=List[OrderItemRead], status_code=status.HTTP_201_CREATED)
+def create_order_items_bulk(bulk_data: OrderItemBulkCreate, session: SessionDep):
+    """Crea múltiples ítems para una orden y actualiza el valor total."""
+    order = session.get(Order, bulk_data.id_order)
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada.")
+
+    db_items = []
+    total_value = 0.0
+
+    for item_data in bulk_data.items:
+        menu_item = session.get(MenuItem, item_data.id_menu_item)
+        if not menu_item or menu_item.id_status != 1:
+            raise HTTPException(status_code=404, detail=f"Plato ID {item_data.id_menu_item} no encontrado o inactivo.")
+
+        db_item = OrderItems(
+            id_order=bulk_data.id_order,
+            id_menu_item=item_data.id_menu_item,
+            quantity=item_data.quantity,
+            note=item_data.note,
+            price_at_order=menu_item.price,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
         )
+        session.add(db_item)
+        db_items.append(db_item)
+        total_value += db_item.price_at_order * db_item.quantity
 
-# --- RUTA PARA CREACIÓN (POST) ---
+    order.total_value += total_value
+    order.updated_at = datetime.utcnow()
+    session.add(order)
+    session.commit()
 
-@router.post("", response_model=OrderItemRead, status_code=status.HTTP_201_CREATED) # Ruta: /api/orders/{order_id}/items
-def add_item_to_order(order_id: int, item_data: OrderItemCreate, session: SessionDep):
-    """Agrega un nuevo ítem a una orden existente, validando el ítem del menú."""
-    # Validación: Verificar que la Orden padre exista y no este eliminada
-    # >>> CAMBIO 5: Usar 'deleted' en lugar de 'deleted_at'
-    order_db = session.get(Order, order_id)
-    if not order_db or order_db.deleted is True:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="La orden padre no existe o está eliminada."
-        )
-        
-    try:
-        # Validación: Verificar que el MenuItem exista y no esté eliminado
-        if item_data.id_menu_item:
-            menu_item_db = session.get(MenuItem, item_data.id_menu_item)
-            if not menu_item_db or menu_item_db.deleted is True:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"El ítem del menú (ID: {item_data.id_menu_item}) no existe o está eliminado."
-                )
+    for db_item in db_items:
+        session.refresh(db_item)
 
-        # Crear el OrderItem y establecer la FC
-        order_item_db = OrderItem.model_validate(item_data.model_dump())
-        order_item_db.id_order = order_id # Asignar el ID de la orden desde la URL
-        order_item_db.created_at = datetime.utcnow()
-        order_item_db.updated_at = datetime.utcnow()
-        # 'deleted' y 'deleted_on' se establecen por defecto en el modelo (False y None)
+    return db_items
 
-        session.add(order_item_db)
-        session.commit()
-        session.refresh(order_item_db)
-        
-        # Actualizar el updated_at de la Orden padre para auditoría
-        order_db.updated_at = datetime.utcnow()
-        session.add(order_db)
-        session.commit() 
-        session.refresh(order_item_db) 
-        
-        return order_item_db
+# ===================================================================
+# PUT → Reemplazar completamente un ítem
+# ===================================================================
+@router.put("/{item_id}", response_model=OrderItemRead)
+def replace_order_item(item_id: int, item_data: OrderItemCreate, session: SessionDep):
+    """Reemplaza completamente un ítem existente."""
+    item_db = session.get(OrderItems, item_id)
+    if not item_db:
+        raise HTTPException(status_code=404, detail="Ítem de orden no encontrado.")
 
-    except HTTPException as http_exc:
-        raise http_exc
-    except Exception as e:
-        session.rollback() 
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al agregar el ítem a la orden: {str(e)}",
-        )
+    menu_item = session.get(MenuItem, item_data.id_menu_item)
+    if not menu_item or menu_item.id_status != 1:
+        raise HTTPException(status_code=404, detail="Plato no encontrado o inactivo.")
 
-# --- RUTA PARA ACTUALIZAR (PATCH) ---
+    order = session.get(Order, item_data.id_order)
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada.")
 
-@router.patch("/{item_id}", response_model=OrderItemRead) # Ruta: /api/orders/{order_id}/items/{item_id}
-def update_order_item(order_id: int, item_id: int, item_data: OrderItemUpdate, session: SessionDep):
-    """Actualiza la cantidad o la nota de un ítem de la orden activo."""
-    # Validación: Verificar que la Orden padre exista
-    order_db = session.get(Order, order_id)
-    # >>> CAMBIO 6: Usar 'deleted' en lugar de 'deleted_at'
-    if not order_db or order_db.deleted is True:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="La orden padre no existe o está eliminada."
-        )
-        
-    try:
-        order_item_db = session.get(OrderItem, item_id)
+    # Ajustar total de la orden
+    old_value = item_db.quantity * item_db.price_at_order
+    new_value = item_data.quantity * menu_item.price
+    order.total_value += new_value - old_value
 
-        # Validación: El ítem debe existir, no estar eliminado y pertenecer a la orden
-        # >>> CAMBIO 7: Usar 'deleted' en lugar de 'deleted_at'
-        if not order_item_db or order_item_db.deleted is True or order_item_db.id_order != order_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de la orden no encontrado o no pertenece a esta orden."
-            )
-        
-        data_to_update = item_data.model_dump(exclude_unset=True)
+    # Reemplazar datos
+    item_db.id_order = item_data.id_order
+    item_db.id_menu_item = item_data.id_menu_item
+    item_db.quantity = item_data.quantity
+    item_db.note = item_data.note
+    item_db.price_at_order = menu_item.price
+    item_db.updated_at = datetime.utcnow()
 
-        # Aplicar actualización y actualizar timestamp
-        order_item_db.sqlmodel_update(data_to_update)
-        order_item_db.updated_at = datetime.utcnow()
-        
-        session.add(order_item_db)
-        session.commit()
-        session.refresh(order_item_db)
-        
-        # Actualizar el updated_at de la Orden padre
-        order_db.updated_at = datetime.utcnow()
-        session.add(order_db)
-        session.commit()
-        session.refresh(order_item_db)
+    session.add(item_db)
+    session.add(order)
+    session.commit()
+    session.refresh(item_db)
 
-        return order_item_db
-    
-    except HTTPException as http_exc:
-        raise http_exc
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al actualizar el ítem de la orden: {str(e)}",
-        )
+    return item_db
 
-# --- RUTA PARA ELIMINACIÓN SUAVE (DELETE) ---
+# ===================================================================
+# PATCH → Actualizar parcialmente un ítem
+# ===================================================================
+@router.patch("/{item_id}", response_model=OrderItemRead)
+def update_order_item(item_id: int, item_data: OrderItemUpdate, session: SessionDep):
+    """Actualiza parcialmente los datos de un ítem."""
+    item_db = session.get(OrderItems, item_id)
+    if not item_db:
+        raise HTTPException(status_code=404, detail="Ítem de orden no encontrado.")
 
-@router.delete("/{item_id}", status_code=status.HTTP_200_OK, response_model=dict) # Ruta: /api/orders/{order_id}/items/{item_id}
-def remove_item_from_order(order_id: int, item_id: int, session: SessionDep):
-    """Realiza la 'Eliminación Suave' de un ítem de la orden."""
-    # Validación: Verificar que la Orden padre exista
-    order_db = session.get(Order, order_id)
-    # >>> CAMBIO 8: Usar 'deleted' en lugar de 'deleted_at'
-    if not order_db or order_db.deleted is True:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="La orden padre no existe o está eliminada."
-        )
-        
-    try:
-        order_item_db = session.get(OrderItem, item_id)
+    order = session.get(Order, item_db.id_order)
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada.")
 
-        # Validación: El ítem debe existir, y pertenecer a la orden
-        if not order_item_db or order_item_db.id_order != order_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de la orden no encontrado o no pertenece a esta orden."
-            )
-        
-        # >>> CAMBIO 9: Usar 'deleted' en lugar de 'deleted_at'
-        if order_item_db.deleted is True:
-            return {"message": f"El ítem (ID: {item_id}) ya estaba marcado como eliminado."}
+    old_total = item_db.quantity * item_db.price_at_order
 
-        current_time = datetime.utcnow()
+    update_data = item_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(item_db, key, value)
 
-        # Aplicar Soft Delete
-        # >>> CAMBIO 10: Asignar deleted=True y deleted_on = current_time
-        order_item_db.deleted = True
-        order_item_db.deleted_on = current_time
-        order_item_db.updated_at = current_time
-        session.add(order_item_db)
-        
-        # Actualizar el updated_at de la Orden padre
-        order_db.updated_at = current_time
-        session.add(order_db)
-        
-        session.commit()
+    # Si se cambió el ítem de menú, actualizar precio
+    if "id_menu_item" in update_data:
+        menu_item = session.get(MenuItem, item_db.id_menu_item)
+        if not menu_item or menu_item.id_status != 1:
+            raise HTTPException(status_code=404, detail="Nuevo plato no encontrado o inactivo.")
+        item_db.price_at_order = menu_item.price
 
-        return {"message": f"Ítem de la orden (ID: {item_id}) eliminado (Soft Delete) exitosamente el {current_time.isoformat()}."}
-    
-    except HTTPException as http_exc:
-        raise http_exc
-    except Exception as e:
-        session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al eliminar el ítem de la orden: {str(e)}",
-        )
+    new_total = item_db.quantity * item_db.price_at_order
+    order.total_value += new_total - old_total
+    item_db.updated_at = datetime.utcnow()
+    order.updated_at = datetime.utcnow()
 
+    session.add(item_db)
+    session.add(order)
+    session.commit()
+    session.refresh(item_db)
 
-# --- RUTA PARA RESTAURACIÓN (PATCH /restore) ---
+    return item_db
 
-@router.patch("/{item_id}/restore", response_model=OrderItemRead) # Ruta: /api/orders/{order_id}/items/{item_id}/restore
-def restore_order_item(order_id: int, item_id: int, session: SessionDep):
-    """
-    Restaura un ítem de orden previamente eliminado (Soft Delete), 
-    cambiando 'deleted' a False y limpiando 'deleted_on'.
-    """
-    # Validación: Verificar que la Orden padre exista y no este eliminada
-    order_db = session.get(Order, order_id)
-    if not order_db or order_db.deleted is True:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="La orden padre no existe o está eliminada."
-        )
-        
-    try:
-        item_db = session.get(OrderItem, item_id)
+# ===================================================================
+# DELETE → Eliminar ítem (Soft Delete)
+# ===================================================================
+@router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_order_item(item_id: int, session: SessionDep):
+    """Elimina un ítem de una orden (soft delete)."""
+    item_db = session.get(OrderItems, item_id)
+    if not item_db:
+        raise HTTPException(status_code=404, detail="Ítem de orden no encontrado.")
 
-        # Validación: El ítem debe existir y pertenecer a la orden
-        if not item_db or item_db.id_order != order_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de la orden no encontrado o no pertenece a esta orden."
-            )
-        
-        # Solo permite la restauración si está actualmente eliminado
-        if item_db.deleted is False:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="El ítem de la orden no está eliminado y no puede ser restaurado."
-            )
-        
-        # Validación de FK: El MenuItem debe existir y no estar eliminado para poder restaurar
-        if item_db.id_menu_item:
-            menu_item_db = session.get(MenuItem, item_db.id_menu_item)
-            if not menu_item_db or menu_item_db.deleted is True:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"No se puede restaurar. El Ítem del Menú (ID: {item_db.id_menu_item}) asociado fue eliminado."
-                )
+    order = session.get(Order, item_db.id_order)
+    if order:
+        order.total_value -= item_db.quantity * item_db.price_at_order
+        order.updated_at = datetime.utcnow()
+        session.add(order)
 
-        current_time = datetime.utcnow()
+    session.delete(item_db)
+    session.commit()
+    return
+# ==========================================================================
+# GET → Obtener todos los ítems de una orden específica
+# ==========================================================================
 
-        # Restaurar el ítem
-        item_db.deleted = False
-        item_db.deleted_on = None  # Limpia la marca de tiempo de eliminación
-        item_db.updated_at = current_time 
+@router.get("/order/{id_order}", response_model=List[OrderItemRead], status_code=status.HTTP_200_OK)
+def get_items_by_order(id_order: int, session: SessionDep):
+    """Obtiene todos los ítems de una orden específica"""
+    items = session.exec(select(OrderItems).where(OrderItems.id_order == id_order)).all()
 
-        session.add(item_db)
-        
-        # Actualizar el updated_at de la Orden padre
-        order_db.updated_at = current_time
-        session.add(order_db)
-        
-        session.commit()
-        session.refresh(item_db)
+    if not items:
+        raise HTTPException(status_code=404, detail=f"No se encontraron ítems para la orden {id_order}")
 
-        return item_db
-    
-    except HTTPException as http_exc:
-        raise http_exc
-    except Exception as e:
-        session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al restaurar el ítem de la orden: {str(e)}",
-        )
+    return items

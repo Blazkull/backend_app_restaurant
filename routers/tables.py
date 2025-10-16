@@ -1,316 +1,176 @@
-from fastapi import APIRouter, Depends, status, HTTPException, Query
-from sqlmodel import select
-from sqlalchemy.orm import selectinload
-from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlmodel import select, func
 from typing import List, Optional
-from starlette.responses import Response
+from datetime import datetime
 
-# Importa las dependencias del Core
+# Importar dependencias del core
 from core.database import SessionDep
-from core.security import decode_token 
+from models.tables import Table
+from schemas.tables_schema import TableRead, TableListResponse, TableCreate, TableUpdate, TableFilter
+from schemas.tables_schema import TableStatusUpdate
 
-from models.tables import Table # Asume que ahora tiene 'deleted' y 'deleted_on'
-from schemas.tables_schema import TableCreate, TableRead, TableUpdate 
+router = APIRouter(prefix="/api/tables", tags=["Mesas"])
 
-# Configuración del Router
-router = APIRouter(prefix="/api/tables", tags=["TABLES"], dependencies=[Depends(decode_token)]) 
-
-
-# ----------------------------------------------------------------------
-# ENDPOINT 1: LISTAR Y FILTRAR MESAS ACTIVAS (GET /tables)
-# ----------------------------------------------------------------------
-@router.get("", response_model=List[TableRead], summary="Listar y filtrar mesas activas con paginación")
+# ======================================================================
+# GET /api/tables - Listar mesas con filtros y paginación
+# ======================================================================
+@router.get("/", response_model=TableListResponse, summary="Listar mesas con filtros y paginación")
 def list_tables(
     session: SessionDep,
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=10, le=100),
-    name_search: Optional[str] = Query(default=None, description="Buscar por nombre/número de mesa (parcialmente).")
+    id_location: Optional[int] = Query(None, description="Filtrar por ID de ubicación"),
+    id_status: Optional[int] = Query(None, description="Filtrar por ID de estado"),
+    min_capacity: Optional[int] = Query(None, description="Filtrar por capacidad mínima"),
+    max_capacity: Optional[int] = Query(None, description="Filtrar por capacidad máxima"),
+    limit: int = Query(10, ge=1, le=100, description="Cantidad máxima de resultados por página"),
+    offset: int = Query(0, ge=0, description="Número de elementos a omitir (para paginación)"),
 ):
-    """
-    Obtiene una lista de todas las mesas **activas** (deleted=False).
-    """
     try:
-        # >>> CAMBIO 1: Filtra por 'deleted == False'
         query = select(Table).where(Table.deleted == False)
-        
-        # Filtrar por nombre
-        if name_search:
-            query = query.where(Table.name.ilike(f"%{name_search}%"))
-            
-        # Aplicar Paginación
-        query = query.offset(offset).limit(limit)
 
-        tables = session.exec(query).all()
-        
-        if not tables and offset > 0:
-             raise HTTPException(
-                 status_code=status.HTTP_404_NOT_FOUND,
-                 detail="No se encontraron más mesas activas en el rango de paginación."
-             )
-            
-        return tables
-        
-    except HTTPException as http_exc:
-        raise http_exc
+        # Aplicar filtros dinámicos
+        if id_location:
+            query = query.where(Table.id_location == id_location)
+        if id_status:
+            query = query.where(Table.id_status == id_status)
+        if min_capacity:
+            query = query.where(Table.capacity >= min_capacity)
+        if max_capacity:
+            query = query.where(Table.capacity <= max_capacity)
+
+        # Total de registros que cumplen el filtro
+        total_count = len(session.exec(query).all())
+
+
+        # Paginación
+        tables = session.exec(query.offset(offset).limit(limit)).all()
+
+        if not tables:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontraron mesas")
+
+        total_pages = (total_count + limit - 1) // limit
+        current_page = (offset // limit) + 1
+
+        return TableListResponse(
+            items=tables,
+            total_count=total_count,
+            offset=offset,
+            limit=limit,
+            total_pages=total_pages,
+            current_page=current_page
+        )
+
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al listar las mesas: {str(e)}",
-        )
-
-# ----------------------------------------------------------------------
-# ENDPOINT 2: LISTAR MESAS ELIMINADAS (GET /tables/deleted)
-# ----------------------------------------------------------------------
-@router.get("/deleted", response_model=List[TableRead], summary="Listar mesas marcadas como eliminadas")
-def read_deleted_tables(
-    session: SessionDep,
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=10, le=100)
-) -> List[TableRead]:
-    """
-    Lista solo las mesas cuyo campo 'deleted' es True.
-    """
-    # >>> CAMBIO 2: Filtra por 'deleted == True'
-    query = select(Table).where(Table.deleted == True).offset(offset).limit(limit)
-    tables = session.exec(query).all()
-    
-    if not tables and offset > 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontraron mesas eliminadas en el rango de paginación."
-        )
-    
-    return tables
+        print(f"Error al listar las mesas: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al listar las mesas: {e}")
 
 
-# ----------------------------------------------------------------------
-# ENDPOINT 3: OBTENER MESA POR ID (GET /tables/{table_id})
-# ----------------------------------------------------------------------
-@router.get("/{table_id}", response_model=TableRead, summary="Obtener una mesa por ID (excluye eliminadas)")
-def read_table(table_id: int, session: SessionDep):
-    """Obtiene una mesa específica por su ID, excluyendo las eliminadas."""
+# ======================================================================
+# GET /api/tables/{table_id} - Obtener mesa por ID
+# ======================================================================
+@router.get("/{table_id}", response_model=TableRead, summary="Obtener detalles de una mesa por ID")
+def get_table(table_id: int, session: SessionDep):
     try:
-        # Usamos select y where para incluir la condición deleted=False
-        # >>> CAMBIO 3: Condición 'Table.deleted == False'
-        statement = select(Table).where(Table.id == table_id, Table.deleted == False)
-        table_db = session.exec(statement).first()
-        
-        if not table_db:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Mesa no encontrada o eliminada."
-            )
-        return table_db
-        
-    except HTTPException as http_exc:
-        raise http_exc
+        table = session.get(Table, table_id)
+        if not table or table.deleted:
+            raise HTTPException(status_code=404, detail="Mesa no encontrada")
+        return table
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al leer la mesa: {str(e)}",
-        )
+        raise HTTPException(status_code=500, detail=f"Error al obtener la mesa: {e}")
 
-# ----------------------------------------------------------------------
-# ENDPOINT 4: CREAR MESA (POST /tables)
-# ----------------------------------------------------------------------
-@router.post("", response_model=TableRead, status_code=status.HTTP_201_CREATED, summary="Crea una nueva mesa")
+
+# ======================================================================
+# POST /api/tables - Crear nueva mesa
+# ======================================================================
+@router.post("/", response_model=TableRead, status_code=status.HTTP_201_CREATED, summary="Crear una nueva mesa")
 def create_table(table_data: TableCreate, session: SessionDep):
-    """Crea una nueva mesa, validando que el nombre sea único entre las activas."""
     try:
-        # Validación de Unicidad por nombre (solo para registros activos)
-        # >>> CAMBIO 4: Filtra por 'deleted == False'
-        existing_table = session.exec(
-            select(Table)
-            .where(Table.name == table_data.name)
-            .where(Table.deleted == False)
-        ).first()
-        # Validación de capacidad (si se proporciona)
-        if capacity_table_max := 20:
-            if table_data.capacity > capacity_table_max or table_data.capacity <= 0:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, 
-                    detail=f"La capacidad de la mesa debe ser un número positivo y no mayor a {capacity_table_max}."
-                )
-            
-        if existing_table:
-            raise HTTPException(
-               status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ya existe una mesa activa con el nombre/número: '{table_data.name}'." 
-            )
-
-        # Creación de la Mesa
-        table_db = Table.model_validate(table_data.model_dump())
-        table_db.created_at = datetime.utcnow()
-        table_db.updated_at = datetime.utcnow()
-        # 'deleted' y 'deleted_on' se establecen por defecto (False y None)
-
-        session.add(table_db)
+        new_table = Table(**table_data.model_dump())
+        session.add(new_table)
         session.commit()
-        session.refresh(table_db)
-        
-        return table_db
-
-    except HTTPException as http_exc:
-        raise http_exc
+        session.refresh(new_table)
+        return new_table
     except Exception as e:
-        session.rollback() 
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al crear la mesa: {str(e)}",
-        )
+        raise HTTPException(status_code=500, detail=f"Error al crear la mesa: {e}")
 
-# ----------------------------------------------------------------------
-# ENDPOINT 5: ACTUALIZAR MESA (PATCH /tables/{table_id})
-# ----------------------------------------------------------------------
-@router.patch("/{table_id}", response_model=TableRead, summary="Actualiza campos de la mesa")
+
+# ======================================================================
+# PATCH /api/tables/{table_id} - Actualizar mesa
+# ======================================================================
+@router.patch("/{table_id}", response_model=TableRead, summary="Actualizar datos de una mesa")
 def update_table(table_id: int, table_data: TableUpdate, session: SessionDep):
-    """Actualiza campos de la mesa, manteniendo la unicidad del nombre."""
     try:
-        table_db = session.get(Table, table_id)
+        table = session.get(Table, table_id)
+        if not table or table.deleted:
+            raise HTTPException(status_code=404, detail="Mesa no encontrada")
 
+        update_data = table_data.model_dump(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No se enviaron campos para actualizar")
 
+        for key, value in update_data.items():
+            setattr(table, key, value)
 
-        # Validación de capacidad (si se proporciona)
-        if table_data.capacity is not None:
-            if capacity_table_max := 20:
-                if table_data.capacity > capacity_table_max or table_data.capacity <= 0:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST, 
-                        detail=f"La capacidad de la mesa debe ser un número positivo y no mayor a {capacity_table_max}."
-                    )
-        
-        # Validación: La mesa debe existir y no estar eliminada
-        if not table_db or table_db.deleted is True:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Mesa no encontrada o eliminada."
-            )
-        
-        data_to_update = table_data.model_dump(exclude_unset=True)
-        
-        # Validación de unicidad si se intenta cambiar el nombre
-        if "name" in data_to_update and data_to_update["name"] != table_db.name:
-            # >>> CAMBIO 6: Filtra por 'deleted == False'
-            existing_table = session.exec(
-                select(Table)
-                .where(Table.name == data_to_update["name"])
-                .where(Table.deleted == False)
-            ).first()
-            
-            # Si el nombre existe Y no pertenece a la mesa que estamos actualizando
-            if existing_table and existing_table.id != table_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ya existe otra mesa activa con el nombre/número: '{data_to_update['name']}'."
-                )
-        
-        # Aplicar actualización y actualizar timestamp
-        table_db.sqlmodel_update(data_to_update)
-        table_db.updated_at = datetime.utcnow()
-        
-        session.add(table_db)
+        table.updated_at = datetime.utcnow()
+        session.add(table)
         session.commit()
-        session.refresh(table_db)
-        return table_db
-    
-    except HTTPException as http_exc:
-        raise http_exc
+        session.refresh(table)
+        return table
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al actualizar la mesa: {str(e)}",
-        )
+        raise HTTPException(status_code=500, detail=f"Error al actualizar la mesa: {e}")
 
-# ----------------------------------------------------------------------
-# ENDPOINT 6: ELIMINAR MESA (DELETE /tables/{table_id}) - SOFT DELETE
-# ----------------------------------------------------------------------
-@router.delete("/{table_id}", status_code=status.HTTP_200_OK, response_model=dict, summary="Realiza la eliminación suave de una mesa")
-def soft_delete_table(table_id: int, session: SessionDep):
-    """Realiza la 'Eliminación Suave' de una mesa, marcando 'deleted=True', y devuelve un JSON de confirmación."""
+
+# ======================================================================
+# DELETE /api/tables/{table_id} - Soft delete
+# ======================================================================
+@router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Eliminar (soft delete) una mesa")
+def delete_table(table_id: int, session: SessionDep):
     try:
-        table_db = session.get(Table, table_id)
+        table = session.get(Table, table_id)
+        if not table or table.deleted:
+            raise HTTPException(status_code=404, detail="Mesa no encontrada")
 
-        if not table_db:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Mesa no encontrada."
-            )
-        
-        # Solo permite eliminar si no está ya eliminada 
-        if table_db.deleted is True:
-            return {"message": f"La Mesa (ID: {table_id}) ya estaba marcada como eliminada."}
+        table.deleted = True
+        table.deleted_on = datetime.utcnow()
+        table.updated_at = datetime.utcnow()
 
-        current_time = datetime.utcnow()
-
-        # Aplicar Soft Delete
-        table_db.deleted = True
-        table_db.deleted_on = current_time
-        table_db.updated_at = current_time
-        session.add(table_db)
+        session.add(table)
         session.commit()
-        
-        # Devolvemos el mensaje de éxito en JSON
-        return {"message": f"{table_db.name} (ID: {table_id}) ha sido eliminada exitosamente el {current_time.isoformat()}."}
-    
-    except HTTPException as http_exc:
-        raise http_exc
+        return
     except Exception as e:
-        session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al eliminar la mesa: {str(e)}",
-        )
-# ----------------------------------------------------------------------
-# ENDPOINT 7: RESTAURAR MESA (PATCH /tables/{table_id}/restore)
-# ----------------------------------------------------------------------
-@router.patch("/{table_id}/restore", response_model=TableRead, summary="Restaura una mesa previamente eliminada")
-def restore_deleted_table(table_id: int, session: SessionDep):
-    """
-    Restaura una mesa previamente eliminada (Soft Delete), 
-    cambiando 'deleted' a False y limpiando 'deleted_on', y valida unicidad del nombre.
-    """
+        raise HTTPException(status_code=500, detail=f"Error al eliminar la mesa: {e}")
+
+
+# ======================================================================
+# PATCH /api/tables/{table_id}/status - Actualizar solo el estado de una mesa
+# ======================================================================
+@router.patch("/{table_id}/status", response_model=TableRead, summary="Actualizar estado de una mesa")
+def update_table_status(table_id: int, status_data: TableStatusUpdate, session: SessionDep):
     try:
-        table_db = session.get(Table, table_id)
+        # 1️⃣ Buscar la mesa
+        table = session.get(Table, table_id)
+        if not table or table.deleted:
+            raise HTTPException(status_code=404, detail="Mesa no encontrada")
 
-        if not table_db:
+        # 2️⃣ Verificar si hay cambio de estado
+        if table.id_status == status_data.id_status:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, 
-                detail="Mesa no encontrada."
-            )
-        
-        # Solo permite la restauración si está actualmente eliminada
-        if table_db.deleted is False:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="La mesa no está eliminada y no puede ser restaurada."
+                status_code=400,
+                detail="El estado ya es el mismo, no hay cambios que aplicar."
             )
 
-        # Validación de unicidad: Verificar si el nombre está ocupado por otra mesa activa
-        existing_table = session.exec(
-            select(Table)
-            .where(Table.name == table_db.name)
-            .where(Table.deleted == False)
-        ).first()
+        # 3️⃣ Actualizar estado
+        table.id_status = status_data.id_status
+        table.updated_at = datetime.utcnow()
 
-        if existing_table:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, 
-                detail=f"Conflicto: No se puede restaurar. El nombre '{table_db.name}' ya está en uso por otra mesa activa (ID: {existing_table.id})."
-            )
-
-        current_time = datetime.utcnow()
-
-        # Restaurar la mesa
-        table_db.deleted = False
-        table_db.deleted_on = None  # Limpia la marca de tiempo de eliminación
-        table_db.updated_at = current_time 
-
-        session.add(table_db)
+        session.add(table)
         session.commit()
-        session.refresh(table_db)
+        session.refresh(table)
 
-        return table_db
-    
-    except HTTPException as http_exc:
-        raise http_exc
+        return table
+
+    except HTTPException:
+        raise
     except Exception as e:
-        session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al restaurar la mesa: {str(e)}",
-        )
+        raise HTTPException(status_code=500, detail=f"Error al actualizar el estado de la mesa: {e}")
