@@ -24,7 +24,6 @@ def create_db_and_tables():
     from models.type_identification import TypeIdentification
     from models.views import View
     from models.invoices import Invoice
-    from models.kitchen_tickets import KitchenTicket
 
     
     SQLModel.metadata.create_all(engine)
