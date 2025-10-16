@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import select
+from fastapi.params import Query
+from sqlmodel import col, select
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 # --- Core ---
 from core.database import SessionDep
@@ -29,18 +30,54 @@ router = APIRouter(
 # ===================================================================
 # GET → Listar todos los ítems de pedido (activos)
 # ===================================================================
-@router.get("", response_model=List[OrderItemRead])
-def list_order_items(session: SessionDep):
-    """Obtiene todos los ítems de pedido existentes."""
+@router.get("", status_code=status.HTTP_200_OK)
+def list_order_items(
+    session: SessionDep,
+    id_order: Optional[int] = Query(None, description="Filtrar por ID de orden"),
+    id_menu_item: Optional[int] = Query(None, description="Filtrar por ID de ítem de menú"),
+    status_item: Optional[str] = Query(None, description="Filtrar por estado del ítem"),
+    created_from: Optional[datetime] = Query(None, description="Filtrar desde fecha de creación"),
+    created_to: Optional[datetime] = Query(None, description="Filtrar hasta fecha de creación"),
+    limit: int = Query(20, description="Límite de resultados por página"),
+    offset: int = Query(0, description="Desplazamiento para paginación")
+):
+    """
+    Lista los ítems de pedido con filtros opcionales y metadatos de paginación.
+    """
     try:
-        statement = select(OrderItems)
-        items = session.exec(statement).all()
-        return items
+        query = select(OrderItems)
+
+        if id_order:
+            query = query.where(col(OrderItems.id_order) == id_order)
+        if id_menu_item:
+            query = query.where(col(OrderItems.id_menu_item) == id_menu_item)
+        if status_item:
+            query = query.where(col(OrderItems.status) == status_item)
+        if created_from:
+            query = query.where(col(OrderItems.created_at) >= created_from)
+        if created_to:
+            query = query.where(col(OrderItems.created_at) <= created_to)
+
+        total_count = session.exec(query).count()  # ✅ más óptimo
+        query = query.limit(limit).offset(offset)
+
+        items = session.exec(query).all()
+
+        return {
+            "data": items,
+            "metadata": {
+                "total_count": total_count,
+                "limit": limit,
+                "offset": offset
+            }
+        }
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al listar ítems de orden: {str(e)}",
         )
+
 
 # ===================================================================
 # GET → Obtener ítem por ID
@@ -226,3 +263,15 @@ def delete_order_item(item_id: int, session: SessionDep):
     session.commit()
     return
 # ==========================================================================
+# GET → Obtener todos los ítems de una orden específica
+# ==========================================================================
+
+@router.get("/order/{id_order}", response_model=List[OrderItemRead], status_code=status.HTTP_200_OK)
+def get_items_by_order(id_order: int, session: SessionDep):
+    """Obtiene todos los ítems de una orden específica"""
+    items = session.exec(select(OrderItems).where(OrderItems.id_order == id_order)).all()
+
+    if not items:
+        raise HTTPException(status_code=404, detail=f"No se encontraron ítems para la orden {id_order}")
+
+    return items

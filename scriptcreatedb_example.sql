@@ -313,14 +313,16 @@ INSERT INTO status (name, description) VALUES
 ('En Proceso', 'Orden en proceso'),
 ('Entregado', 'Pedido entregado'),
 
--- 8-11: Estados para tickets de cocina
+-- 8-12: Estados para tickets de cocina
 ('Pendiente', 'Pedido pendiente de cocina'),
 ('Preparación', 'Pedido en preparacion'),
 ('Listo', 'Pedido listo para servir'),
+('Entregado', 'Pedido entregado al cliente'),
 ('Cancelada', 'Orden, factura o item cancelado'), -- Reutilizado para cancelaciones
 
--- 12: Estados para facturas
+-- 13: Estados para facturas
 ('Pagada', 'Factura pagada');
+('Anulada', 'Factura anulada');
 
 -- 3. Métodos de Pago (payment_method)
 INSERT INTO payment_method (name) VALUES

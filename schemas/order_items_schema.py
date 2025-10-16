@@ -2,6 +2,7 @@
 
 
 
+from datetime import datetime
 from typing import Optional
 from sqlmodel import Field, SQLModel
 
@@ -14,7 +15,7 @@ class OrderItemBase(SQLModel):
     price_at_order: float = Field(gt=0, description="Precio del ítem en el momento del pedido")
     id_kitchen_ticket: Optional[int] = None
 
-class OrderItemCreate(OrderItemBase):
+class OrderItemCreate(SQLModel):
     id_menu_item: int
     quantity: int = Field(gt=0, description="Cantidad del ítem en el pedido")
     note: Optional[str] = Field(default=None, max_length=100)
@@ -29,10 +30,15 @@ class OrderItemUpdate(SQLModel):
     price_at_order: Optional[float] = Field(default=None, gt=0, description="Precio del ítem en el momento del pedido")
     id_kitchen_ticket: Optional[int] = None
 
-class OrderItemRead(OrderItemBase):
+class OrderItemRead(SQLModel):
     id: int
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    id_order: int
+    id_menu_item: int
+    quantity: int
+    note: Optional[str]
+    price_at_order: float
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

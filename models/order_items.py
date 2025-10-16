@@ -22,8 +22,10 @@ class OrderItems(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    deleted: bool = Field(default=False, nullable=False)
+    deleted_on: Optional[datetime] = Field(default=None)
 
     # Relaciones
-    order: Optional["Order"] = Relationship(back_populates="items")
+    order: "Order" = Relationship(back_populates="order_items")
     menu_item: Optional["MenuItem"] = Relationship(back_populates="order_items")
     kitchen_ticket: Optional["KitchenTicket"] = Relationship(back_populates="order_items")
