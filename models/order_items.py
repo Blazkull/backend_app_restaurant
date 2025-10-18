@@ -5,8 +5,6 @@ from sqlmodel import SQLModel, Field, Relationship
 if TYPE_CHECKING:
     from models.orders import Order
     from models.menu_items import MenuItem
-    from models.kitchen_tickets import KitchenTicket
-
 
 class OrderItems(SQLModel, table=True):
     __tablename__ = "order_items"
@@ -28,4 +26,4 @@ class OrderItems(SQLModel, table=True):
     # Relaciones
     order: "Order" = Relationship(back_populates="order_items")
     menu_item: Optional["MenuItem"] = Relationship(back_populates="order_items")
-    kitchen_ticket: Optional["KitchenTicket"] = Relationship(back_populates="order_items")
+
