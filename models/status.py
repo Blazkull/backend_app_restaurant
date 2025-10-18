@@ -23,7 +23,6 @@ class Status(SQLModel, table=True):
     tables: List["Table"] = Relationship(back_populates="status")
     orders: List["Order"] = Relationship(back_populates="status")
     invoices: List["Invoice"] = Relationship(back_populates="status")
-    kitchen_tickets: List["KitchenTicket"] = Relationship(back_populates="status") 
 
 
 from typing import TYPE_CHECKING
@@ -35,4 +34,4 @@ if TYPE_CHECKING:
     from models.tables import Table
     from models.orders import Order
     from models.invoices import Invoice
-    from models.kitchen_tickets import KitchenTicket  
+
