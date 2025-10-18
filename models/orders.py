@@ -23,7 +23,6 @@ class Order(SQLModel, table=True):
     table: "Table" = Relationship(back_populates="orders")
     status: "Status" = Relationship(back_populates="orders")
     order_items: List["OrderItems"] = Relationship(back_populates="order")
-    kitchen_tickets: List["KitchenTicket"] = Relationship(back_populates="order")
     invoice: Optional["Invoice"] = Relationship(back_populates="order")
 
 
@@ -33,4 +32,3 @@ if TYPE_CHECKING:
     from models.order_items import OrderItems
     from models.invoices import Invoice
     from models.users import User
-    from models.kitchen_tickets import KitchenTicket
