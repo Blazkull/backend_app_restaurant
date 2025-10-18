@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from sqlmodel import Field, SQLModel, Relationship
 from .link_models import UserRoleLink
+from pydantic import EmailStr as Email
 
 class User(SQLModel, table=True):
     """Modelo para 'users' (empleados del restaurante)."""
@@ -11,7 +12,7 @@ class User(SQLModel, table=True):
     name: str = Field(max_length=100, nullable=False)
     username: str = Field(max_length=50, unique=True, nullable=False)
     password: str = Field(max_length=100, nullable=False)
-    email: str = Field(max_length=100, unique=True, nullable=False)
+    email: Email = Field(max_length=100, unique=True, nullable=False)
     
     id_role: Optional[int] = Field(default=None, foreign_key="roles.id")
     id_status: Optional[int] = Field(default=None, foreign_key="status.id")
