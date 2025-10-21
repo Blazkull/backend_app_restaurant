@@ -194,7 +194,7 @@ def create_consolidated_invoice(invoice_data: InvoiceCreateConsolidated, session
             total=total,
             ammount_paid=paid,
             returned=returned,
-            note=invoice_data.note,
+            #note=invoice_data.note,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
         )
@@ -290,7 +290,7 @@ def annul_invoice(invoice_id: int, annulment_data: InvoiceAnnulment, session: Se
     invoice.id_status = ID_STATUS_ANNULLED
     invoice.deleted = True
     invoice.deleted_on = datetime.utcnow()
-    invoice.note = f"Anulada: {annulment_data.annulment_reason or 'Sin motivo'}"
+    #invoice.note = f"Anulada: {annulment_data.annulment_reason or 'Sin motivo'}"
     invoice.updated_at = datetime.utcnow()
     session.add(invoice)
     session.commit()
