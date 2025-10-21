@@ -22,7 +22,7 @@ class InvoiceBase(SQLModel):
     returned: float = Field(ge=0, description="Monto devuelto al cliente (cambio).")
     ammount_paid: float = Field(ge=0, description="Monto pagado por el cliente.")
     total: float = Field(ge=0, description="Monto total adeudado de la factura.")
-    note: Optional[str] = Field(default=None, max_length=100, description="Notas o motivo de anulación.")
+    #note: Optional[str] = Field(default=None, max_length=100, description="Notas o motivo de anulación.")
 
 class InvoiceCreate(InvoiceBase):
     """Schema para la creación de una factura singular (uso Legacy/Admin)."""
@@ -37,7 +37,7 @@ class InvoiceUpdate(SQLModel):
     ammount_paid: Optional[float] = Field(default=None, ge=0)
     total: Optional[float] = Field(default=None, ge=0)
     id_status: Optional[int] = None
-    note: Optional[str] = Field(default=None, max_length=100)
+    #note: Optional[str] = Field(default=None, max_length=100)
 
 class InvoiceRead(InvoiceBase):
     """Schema de lectura que incluye metadatos y Soft Delete."""
@@ -79,7 +79,7 @@ class InvoiceCreateConsolidated(SQLModel):
     id_payment_method: int
     ammount_paid: float = Field(..., ge=0, description="Monto entregado por el cliente para el pago.")
     id_status: Optional[int] = None
-    note: Optional[str] = Field(default=None, max_length=100)
+    #note: Optional[str] = Field(default=None, max_length=100)
 
 class InvoiceCountResponse(SQLModel):
     """Schema de salida para el recuento total de facturas por estado (Dashboard)."""
@@ -114,4 +114,4 @@ class InvoicePaymentUpdate(SQLModel):
     id_status: int = Field(..., description="Nuevo ID de estado.")
     id_payment_method: Optional[int] = None
     ammount_paid: Optional[float] = Field(default=None, ge=0, description="Monto pagado.")
-    note: Optional[str] = Field(default=None, max_length=100)
+    #note: Optional[str] = Field(default=None, max_length=100)
