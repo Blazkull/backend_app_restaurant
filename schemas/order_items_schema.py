@@ -13,7 +13,7 @@ class OrderItemBase(SQLModel):
     quantity: int = Field(gt=0, description="Cantidad del ítem en el pedido")
     note: Optional[str] = Field(default=None, max_length=100)
     price_at_order: float = Field(gt=0, description="Precio del ítem en el momento del pedido")
-    id_kitchen_ticket: Optional[int] = None
+    #id_kitchen_ticket: Optional[int] = None
 
 class OrderItemCreate(SQLModel):
     id_menu_item: int
@@ -28,7 +28,7 @@ class OrderItemUpdate(SQLModel):
     quantity: Optional[int] = Field(default=None, gt=0, description="Cantidad del ítem en el pedido")
     note: Optional[str] = Field(default=None, max_length=100)
     price_at_order: Optional[float] = Field(default=None, gt=0, description="Precio del ítem en el momento del pedido")
-    id_kitchen_ticket: Optional[int] = None
+    #id_kitchen_ticket: Optional[int] = None
 
 class OrderItemRead(SQLModel):
     id: int
