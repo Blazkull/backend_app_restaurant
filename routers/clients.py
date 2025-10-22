@@ -309,3 +309,72 @@ def restore_deleted_client(client_id: int, session: SessionDep):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al restaurar el cliente: {str(e)}",
         )
+    
+
+# ---------------------------------------------------------------
+# ENDPOINT 6: RESTAURAR CLIENTE (PATCH /clients/{client_id}/restore)
+# ---------------------------------------------------------------
+
+@router.patch("/{client_id}/restore", response_model=ClientRead, summary="Restaura un cliente previamente eliminado")
+def restore_deleted_client(client_id: int, session: SessionDep):
+    """
+    Restaura un cliente previamente eliminado (Soft Delete),
+    cambiando 'deleted' a False y limpiando 'deleted_on'.
+    """
+    try:
+        # Buscar el cliente por ID
+        client_db = session.get(Client, client_id)
+
+        if not client_db:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cliente no encontrado."
+            )
+        
+        # Validar que esté efectivamente eliminado
+        if client_db.deleted is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El cliente no está eliminado y no puede ser restaurado."
+            )
+
+        # Verificar unicidad antes de restaurar (para evitar colisiones con clientes activos)
+        def check_restore_uniqueness(field, value, field_name: str):
+            if value:  # Evita verificar campos nulos
+                existing = session.exec(
+                    select(Client)
+                    .where(field == value)
+                    .where(Client.deleted == False)
+                ).first()
+                if existing:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Conflicto: No se puede restaurar el cliente. "
+                               f"El valor del campo '{field_name}' ('{value}') "
+                               f"ya está en uso por otro cliente activo (ID: {existing.id})."
+                    )
+
+        check_restore_uniqueness(Client.phone_number, client_db.phone_number, "phone_number")
+        check_restore_uniqueness(Client.identification_number, client_db.identification_number, "identification_number")
+        check_restore_uniqueness(Client.email, client_db.email, "email")
+
+        # Restaurar el cliente
+        current_time = datetime.utcnow()
+        client_db.deleted = False
+        client_db.deleted_on = None
+        client_db.updated_at = current_time
+
+        session.add(client_db)
+        session.commit()
+        session.refresh(client_db)
+
+        return client_db
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al restaurar el cliente: {str(e)}",
+        )
