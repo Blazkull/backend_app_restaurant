@@ -78,9 +78,9 @@ CREATE TABLE tokens (
     id INT PRIMARY KEY AUTO_INCREMENT,
     id_user INT NOT NULL,
     token VARCHAR(255) NOT NULL,
-    status_token BOOLEAN NOT NULL, -- Uso BOOLEAN/TINYINT(1) en lugar de TINYINT
-    expiration DATETIME NOT NULL,
+    status_token BOOLEAN NOT NULL, 
     date_token DATETIME NOT NULL,
+    expiration DATETIME NOT NULL,
     FOREIGN KEY (id_user) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
