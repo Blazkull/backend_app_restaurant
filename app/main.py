@@ -36,6 +36,7 @@ from routers import tables
 from routers import type_identification
 from routers import kitchen_tickets
 from routers import invoices
+from routers import dashboard
 
 
 
@@ -106,6 +107,7 @@ app.include_router(tables.router)
 app.include_router(type_identification.router)
 app.include_router(kitchen_tickets.router)
 app.include_router(invoices.router)
+app.include_router(dashboard.router)
 
 
 
