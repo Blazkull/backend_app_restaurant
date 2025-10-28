@@ -251,9 +251,12 @@ async def create_menu_item_with_image(
 ):
     try:
         # 1. Validaciones de FKs
-        if not session.get(Category, id_category) or session.get(Category, id_category).deleted:
+        category_db = session.get(Category, id_category)
+        if not category_db or category_db.deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Categoría no encontrada o eliminada.")
-        if not session.get(Status, id_status) or session.get(Status, id_status).deleted:
+        
+        status_db = session.get(Status, id_status)
+        if not status_db or status_db.deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Estado no encontrado o eliminado.")
 
         # 2. Manejo y Guardado de la Imagen
@@ -271,13 +274,16 @@ async def create_menu_item_with_image(
                 shutil.copyfileobj(image.file, buffer)
             image_filename = safe_filename
 
-        # 3. Creación del objeto MenuItem
+        # 3. Creación del objeto MenuItem (usando el esquema de creación)
         menu_item_data = MenuItemCreate(
             name=name, id_category=id_category, ingredients=ingredients, 
             estimated_time=estimated_time, price=price, id_status=id_status, image=image_filename
         )
         
+        # Convertir el esquema de creación al modelo de DB
         menu_db = MenuItem.model_validate(menu_item_data.model_dump())
+        
+        # Asignar marcas de tiempo iniciales
         menu_db.created_at = datetime.now(timezone.utc)
         menu_db.updated_at = datetime.now(timezone.utc)
         
@@ -286,11 +292,23 @@ async def create_menu_item_with_image(
         session.commit()
         session.refresh(menu_db)
         
-        # Cargar relaciones para la respuesta
-        session.refresh(menu_db, attribute_names=["category", "status"]) 
-        menu_db.image_url = get_image_url(menu_db.image)
-        
-        return menu_db
+        # 5. Construir y retornar el esquema de lectura (MenuItemRead)
+        #    Esto resuelve el error "MenuItem object has no field image_url".
+        return MenuItemRead(
+            id=menu_db.id,
+            name=menu_db.name,
+            id_category=menu_db.id_category,
+            ingredients=menu_db.ingredients,
+            estimated_time=menu_db.estimated_time,
+            price=menu_db.price,
+            id_status=menu_db.id_status,
+            image=menu_db.image,
+            image_url=get_image_url(menu_db.image), # ✅ Sintaxis corregida
+            created_at=menu_db.created_at,
+            updated_at=menu_db.updated_at,
+            deleted=menu_db.deleted,
+            deleted_on=menu_db.deleted_on,
+        )
         
     except HTTPException as http_exc:
         session.rollback()
@@ -301,7 +319,6 @@ async def create_menu_item_with_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al crear el ítem del menú: {str(e)}",
         )
-
 
 # ----------------------------------------------------------------------
 # ENDPOINT 5: ACTUALIZAR ÍTEM DE MENÚ (PATCH /menu_items/{item_id})

@@ -10,7 +10,6 @@ from models.tokens import Token as DBToken # Modelo de la tabla de tokens
 from schemas.tokens_schema import AccessTokenResponse # Schema de respuesta
 from sqlalchemy.exc import SQLAlchemyError # Para manejar errores de base de datos
 from sqlalchemy.orm import selectinload 
-# CORRECCIÓN: Uso correcto de APIRouter
 router = APIRouter(prefix="/api/auth", tags=["AUTH"])
 
 # Definición de la excepción de seguridad para consistencia

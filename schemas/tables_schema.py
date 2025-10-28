@@ -5,7 +5,7 @@ from datetime import datetime
 class TableBase(SQLModel):
     name: str = Field(max_length=20)
     id_location: int
-    capacity: int
+    capacity: int = Field (le=20)
     id_status: int
 
 class TableCreate(TableBase):
@@ -14,7 +14,7 @@ class TableCreate(TableBase):
 class TableUpdate(SQLModel):
     name: Optional[str] = Field(default=None, max_length=20)
     id_location: Optional[int] = None
-    capacity: Optional[int] = None
+    capacity: Optional[int] = Field (le=20)
     id_status: Optional[int] = None
     id_user_assigned: Optional[int] = None
 
