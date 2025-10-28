@@ -294,3 +294,117 @@ def soft_delete_order(order_id: int, session: SessionDep):
             status_code=500,
             detail=f"Error al eliminar la orden: {str(e)}"
         )
+
+
+# ==========================================================
+# GET → Obtener detalles completos de una orden con ítems
+# ==========================================================
+@router.get("/{order_id}/details", status_code=status.HTTP_200_OK)
+def get_order_details(order_id: int, session: SessionDep):
+    """
+    Obtiene los detalles completos de una orden:
+    - id, mesa, usuario creador, estado
+    - fecha de creación y actualización
+    - ítems del menú con cantidad, nombre, precio y nota
+    """
+    try:
+        # Buscar la orden
+        order = session.get(Order, order_id)
+        if not order or order.deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Orden no encontrada o eliminada."
+            )
+
+        # Obtener los ítems asociados a la orden
+        query_items = select(OrderItems, MenuItem).where(
+            OrderItems.id_order == order_id,
+            OrderItems.id_menu_item == MenuItem.id
+        )
+
+        results = session.exec(query_items).all()
+
+        items_list = []
+        for order_item, menu_item in results:
+            items_list.append({
+                "id_menu_item": menu_item.id,
+                "menu_name": menu_item.name,
+                "quantity": order_item.quantity,
+                "price_at_order": order_item.price_at_order,
+                "note": order_item.note,
+                "subtotal": order_item.price_at_order * order_item.quantity
+            })
+
+        response = {
+            "order_id": order.id,
+            "id_table": order.id_table,
+            "id_user_created": order.id_user_created,
+            "id_status": order.id_status,
+            "created_at": order.created_at,
+            "updated_at": order.updated_at,
+            "items": items_list
+        }
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener los detalles de la orden: {str(e)}"
+        )
+
+
+
+# ==========================================================
+# GET → Obtener detalles completos de todas las  ordenes con ítems
+# ==========================================================
+
+
+
+@router.get("-details", status_code=status.HTTP_200_OK)
+def list_orders_with_details(session: SessionDep):
+    """
+    Lista todas las órdenes activas con sus ítems de menú.
+    """
+    try:
+        orders_query = select(Order).where(Order.deleted == False)
+        orders = session.exec(orders_query).all()
+
+        result = []
+        for order in orders:
+            items_query = select(OrderItems, MenuItem).where(
+                OrderItems.id_order == order.id,
+                OrderItems.id_menu_item == MenuItem.id
+            )
+            results = session.exec(items_query).all()
+
+            items_list = []
+            for order_item, menu_item in results:
+                items_list.append({
+                    "id_menu_item": menu_item.id,
+                    "menu_name": menu_item.name,
+                    "quantity": order_item.quantity,
+                    "price_at_order": order_item.price_at_order,
+                    "note": order_item.note,
+                    "subtotal": order_item.price_at_order * order_item.quantity
+                })
+
+            result.append({
+                "order_id": order.id,
+                "id_table": order.id_table,
+                "id_user_created": order.id_user_created,
+                "id_status": order.id_status,
+                "created_at": order.created_at,
+                "updated_at": order.updated_at,
+                "items": items_list
+            })
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al listar las órdenes con detalles: {str(e)}"
+        )
