@@ -288,7 +288,7 @@ async def create_menu_item_with_image(
         image_filename = None
         if image and image.filename:
             file_extension = Path(image.filename).suffix.lower()
-            if file_extension not in [".jpg", ".jpeg", ".png", ".gif"]:
+            if file_extension not in [".jpg", ".jpeg", ".png", ".gif",".webp"]:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Formato de imagen no soportado.")
 
             safe_filename = f"menu_item_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{image.filename}"

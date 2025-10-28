@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlmodel import select, col, func
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
-
+from math import ceil
+from fastapi import Query
 # Core
 from core.database import SessionDep
 from core.security import decode_token
@@ -357,23 +358,69 @@ def get_order_details(order_id: int, session: SessionDep):
 
 
 
+
 # ==========================================================
-# GET → Obtener detalles completos de todas las  ordenes con ítems
+# GET → Obtener detalles completos de todas las órdenes con ítems
 # ==========================================================
-
-
-
 @router.get("-details", status_code=status.HTTP_200_OK)
-def list_orders_with_details(session: SessionDep):
+def list_orders_with_details(
+    session:SessionDep,
+    id_user_created: int | None = Query(None, description="Filtra por ID de usuario que creó la orden"),
+    id_status: int | None = Query(None, description="Filtra por estado de la orden"),
+    id_table: int | None = Query(None, description="Filtra por número de mesa"),
+    page: int = Query(1, ge=1, description="Número de página para la paginación"),
+    page_size: int = Query(10, ge=1, le=100, description="Cantidad de resultados por página"),
+):
     """
-    Lista todas las órdenes activas con sus ítems de menú.
+    Lista todas las órdenes activas del día actual con sus ítems de menú.
+    Permite filtrar por id_user_created, id_status e id_table.
+    Incluye paginación y muestra cantidad total y cantidad por página.
     """
     try:
-        orders_query = select(Order).where(Order.deleted == False)
-        orders = session.exec(orders_query).all()
+        # ======================================================
+        # 1️⃣ Obtener fecha actual (solo las órdenes del día)
+        # ======================================================
+        today = date.today()
+        start_of_day = datetime.combine(today, datetime.min.time())
+        end_of_day = datetime.combine(today, datetime.max.time())
+
+        # ======================================================
+        # 2️⃣ Construir query base con filtros
+        # ======================================================
+        orders_query = select(Order).where(
+            Order.deleted == False,
+            Order.created_at >= start_of_day,
+            Order.created_at <= end_of_day
+        )
+
+        if id_user_created is not None:
+            orders_query = orders_query.where(Order.id_user_created == id_user_created)
+
+        if id_status is not None:
+            orders_query = orders_query.where(Order.id_status == id_status)
+
+        if id_table is not None:
+            orders_query = orders_query.where(Order.id_table == id_table)
+
+        # ======================================================
+        # 3️⃣ Ejecutar consulta y contar resultados
+        # ======================================================
+        all_orders = session.exec(orders_query).all()
+        total_orders = len(all_orders)
+        total_pages = ceil(total_orders / page_size) if total_orders > 0 else 1
+
+        # ======================================================
+        # 4️⃣ Aplicar paginación
+        # ======================================================
+        offset = (page - 1) * page_size
+        orders_paginated = all_orders[offset:offset + page_size]
 
         result = []
-        for order in orders:
+
+        # ======================================================
+        # 5️⃣ Recorrer las órdenes y traer sus ítems
+        # ======================================================
+        for order in orders_paginated:
             items_query = select(OrderItems, MenuItem).where(
                 OrderItems.id_order == order.id,
                 OrderItems.id_menu_item == MenuItem.id
@@ -385,6 +432,7 @@ def list_orders_with_details(session: SessionDep):
                 items_list.append({
                     "id_menu_item": menu_item.id,
                     "menu_name": menu_item.name,
+                    "image_url": getattr(menu_item, "image_url", None),
                     "quantity": order_item.quantity,
                     "price_at_order": order_item.price_at_order,
                     "note": order_item.note,
@@ -401,7 +449,17 @@ def list_orders_with_details(session: SessionDep):
                 "items": items_list
             })
 
-        return result
+        # ======================================================
+        # 6️⃣ Respuesta con metadatos de paginación
+        # ======================================================
+        return {
+            "page": page,
+            "page_size": page_size,
+            "total_orders": total_orders,
+            "total_pages": total_pages,
+            "count_on_page": len(result),
+            "orders": result
+        }
 
     except Exception as e:
         raise HTTPException(
