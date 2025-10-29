@@ -34,7 +34,7 @@ def read_users(
     
     # Paginación
     offset: int = Query(default=0, ge=0, description="Número de registros a omitir (offset)."),
-    limit: int = Query(default=10, le=100, description="Máxima cantidad de usuarios a retornar (limit)."),
+    limit: int = Query(default=20, le=100, description="Máxima cantidad de usuarios a retornar (limit)."),
     
     # Filtrado por Estado
     status_id: Optional[int] = Query(default=None, description="Filtrar por ID de estado."),
